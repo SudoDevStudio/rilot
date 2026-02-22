@@ -20,14 +20,20 @@ services:
       - us-west
 
   us-east:
-    image: hashicorp/http-echo:1.0.0
-    command: ["-listen=:5678", "-text={\"zone\":\"us-east\",\"status\":\"ok\"}"]
+    image: node:20-alpine
     container_name: us-east
+    working_dir: /sim
+    volumes:
+      - ../examples/node-apps:/sim:ro
+    command: ["node", "/sim/us-east-app.js"]
 
   us-west:
-    image: hashicorp/http-echo:1.0.0
-    command: ["-listen=:5678", "-text={\"zone\":\"us-west\",\"status\":\"ok\"}"]
+    image: node:20-alpine
     container_name: us-west
+    working_dir: /sim
+    volumes:
+      - ../examples/node-apps:/sim:ro
+    command: ["node", "/sim/us-west-app.js"]
 
   prometheus:
     image: prom/prometheus:v2.54.1

@@ -4,7 +4,7 @@ This folder provides a reproducible Docker workflow for evaluating Rilot routing
 
 ## Components
 
-- `docker-compose.yml`: starts Rilot, two zone backends, and Prometheus.
+- `docker-compose.yml`: starts Rilot, two Node.js zone simulators, and Prometheus.
 - `config.docker.json`: Docker-native routing and policy config.
 - `prometheus.yml`: scrape config for `/metrics`.
 - `scripts/run_experiment.sh`: load generation and metric snapshot export.

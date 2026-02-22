@@ -2,6 +2,14 @@
 
 ## Local run
 
+1. Start zone simulators:
+
+```bash
+./examples/node-apps/run-local-zones.sh
+```
+
+2. Start Rilot in another terminal:
+
 ```bash
 cargo build --release
 RUST_LOG=info ./target/release/rilot config.json
@@ -12,6 +20,17 @@ Optional env vars:
 - `RILOT_HOST` (default `127.0.0.1`)
 - `RILOT_PORT` (default `8080`)
 - `RILOT_ENV=production` (enables Wasm component cache)
+
+## ElectricityMap provider
+
+To enable live carbon data:
+
+1. Set `carbon.provider` to `electricitymap`.
+2. Set `carbon.electricitymap_api_key`.
+3. Optionally set `carbon.electricitymap_api_token_header` (default is `auth-token`).
+4. Optionally set `carbon.electricitymap_zone_map` to map Rilot zone names to ElectricityMap zone IDs.
+
+Rilot reads provider data through async refresh and cache. Requests do not block on provider calls.
 
 ## Docker run
 
@@ -37,7 +56,7 @@ Endpoints:
 
 ### No matching route
 
-- Confirm `rule.path` and `rule.type` in `config.json`.
+- Confirm `rule.path` and `rule.type` in config.
 - Ensure request path uses expected prefix for `contain` rules.
 
 ### No carbon-aware behavior
@@ -45,6 +64,13 @@ Endpoints:
 - Confirm `policy.carbon_cursor_enabled=true`.
 - Confirm zones are configured and non-empty.
 - Confirm request not forcing overrides via headers.
+
+### ElectricityMap not used
+
+- Confirm `carbon.provider=electricitymap`.
+- Confirm `carbon.electricitymap_api_key` is set.
+- Confirm zone mapping in `carbon.electricitymap_zone_map` if names differ.
+- Check logs for `electricitymap_*_failed` warnings.
 
 ### Plugin not applying
 
@@ -56,7 +82,7 @@ Endpoints:
 ### Unexpected fallback to latency
 
 - Carbon signals may be missing or provider timeout occurred.
-- Validate `carbon.zone_current` values and provider settings.
+- Validate provider settings and fallback `zone_current` values.
 
 ### High routing variance
 

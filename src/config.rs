@@ -88,8 +88,8 @@ pub struct RoutePolicy {
 pub struct CarbonProviderConfig {
     #[serde(default = "default_carbon_provider")]
     pub provider: String,
-    #[serde(default = "default_cache_ttl_secs")]
-    pub cache_ttl_secs: u64,
+    #[serde(default = "default_cache_ttl_minutes")]
+    pub cache_ttl_minutes: u64,
     #[serde(default = "default_default_carbon_intensity")]
     pub default_carbon_intensity: f64,
     #[serde(default)]
@@ -98,6 +98,16 @@ pub struct CarbonProviderConfig {
     pub zone_forecast_next: HashMap<String, f64>,
     #[serde(default = "default_provider_timeout_ms")]
     pub provider_timeout_ms: u64,
+    #[serde(default = "default_electricitymap_base_url")]
+    pub electricitymap_base_url: String,
+    #[serde(default)]
+    pub electricitymap_api_key: Option<String>,
+    #[serde(default = "default_electricitymap_api_token_header")]
+    pub electricitymap_api_token_header: String,
+    #[serde(default)]
+    pub electricitymap_zone_map: HashMap<String, String>,
+    #[serde(default)]
+    pub electricitymap_disable_estimations: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -201,11 +211,16 @@ impl Default for CarbonProviderConfig {
     fn default() -> Self {
         Self {
             provider: default_carbon_provider(),
-            cache_ttl_secs: default_cache_ttl_secs(),
+            cache_ttl_minutes: default_cache_ttl_minutes(),
             default_carbon_intensity: default_default_carbon_intensity(),
             zone_current: HashMap::new(),
             zone_forecast_next: HashMap::new(),
             provider_timeout_ms: default_provider_timeout_ms(),
+            electricitymap_base_url: default_electricitymap_base_url(),
+            electricitymap_api_key: None,
+            electricitymap_api_token_header: default_electricitymap_api_token_header(),
+            electricitymap_zone_map: HashMap::new(),
+            electricitymap_disable_estimations: false,
         }
     }
 }
@@ -273,8 +288,8 @@ fn default_carbon_provider() -> String {
     "mock".to_string()
 }
 
-fn default_cache_ttl_secs() -> u64 {
-    60
+fn default_cache_ttl_minutes() -> u64 {
+    1
 }
 
 fn default_default_carbon_intensity() -> f64 {
@@ -303,4 +318,12 @@ fn default_rollup_interval_secs() -> u64 {
 
 fn default_max_candidates() -> usize {
     8
+}
+
+fn default_electricitymap_base_url() -> String {
+    "https://api.electricitymap.org".to_string()
+}
+
+fn default_electricitymap_api_token_header() -> String {
+    "auth-token".to_string()
 }

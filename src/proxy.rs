@@ -3,6 +3,8 @@ use hyper::{
     header::{HeaderName, HeaderValue},
     Body, Client, Request, Response, Server, StatusCode, Uri,
 };
+use once_cell::sync::Lazy;
+use reqwest::header::{HeaderMap, HeaderName as ReqHeaderName, HeaderValue as ReqHeaderValue};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -14,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use crate::{config, wasm_engine};
 
 const CROSS_REGION_RTT_PENALTY_MS: f64 = 40.0;
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
 #[derive(Serialize)]
 struct WasmInput {
@@ -827,7 +830,7 @@ fn trigger_refresh(zone: String, cfg: config::CarbonProviderConfig, state: AppSt
                     CachedCarbon {
                         current,
                         forecast_next,
-                        expires_at: Instant::now() + Duration::from_secs(cfg.cache_ttl_secs),
+                        expires_at: Instant::now() + Duration::from_secs(cfg.cache_ttl_minutes * 60),
                     },
                 );
             }
@@ -840,7 +843,11 @@ fn trigger_refresh(zone: String, cfg: config::CarbonProviderConfig, state: AppSt
 }
 
 async fn fetch_provider_signal(zone: &str, cfg: &config::CarbonProviderConfig) -> (Option<f64>, Option<f64>) {
-    // Placeholder provider hook. Keep this async so external providers can be added without changing the hot path.
+    // Keep this async so providers can be swapped without changing the hot path.
+    if cfg.provider == "electricitymap" {
+        return fetch_electricitymap_signal(zone, cfg).await;
+    }
+
     if cfg.provider == "slow-mock" {
         tokio::time::sleep(Duration::from_millis(cfg.provider_timeout_ms + 10)).await;
     }
@@ -863,6 +870,103 @@ async fn fetch_provider_signal(zone: &str, cfg: &config::CarbonProviderConfig) -
     } else {
         (current_from_cfg, forecast_from_cfg)
     }
+}
+
+async fn fetch_electricitymap_signal(
+    zone: &str,
+    cfg: &config::CarbonProviderConfig,
+) -> (Option<f64>, Option<f64>) {
+    let Some(api_key) = cfg.electricitymap_api_key.as_ref() else {
+        log::warn!("electricitymap_api_key_missing=true zone={}", zone);
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    };
+
+    let external_zone = cfg
+        .electricitymap_zone_map
+        .get(zone)
+        .cloned()
+        .unwrap_or_else(|| zone.to_string());
+    let base = cfg.electricitymap_base_url.trim_end_matches('/');
+    let disable_estimations = if cfg.electricitymap_disable_estimations {
+        "true"
+    } else {
+        "false"
+    };
+    let url = format!(
+        "{}/v3/carbon-intensity/latest?zone={}&disableEstimations={}",
+        base, external_zone, disable_estimations
+    );
+
+    let mut headers = HeaderMap::new();
+    if let (Ok(name), Ok(value)) = (
+        ReqHeaderName::from_bytes(cfg.electricitymap_api_token_header.as_bytes()),
+        ReqHeaderValue::from_str(api_key),
+    ) {
+        headers.insert(name, value);
+    }
+
+    let response = HTTP_CLIENT.get(url).headers(headers).send().await;
+    let Ok(resp) = response else {
+        log::warn!("electricitymap_request_failed=true zone={}", zone);
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    };
+    let status = resp.status();
+    if !status.is_success() {
+        log::warn!(
+            "electricitymap_status_failed=true zone={} status={}",
+            zone,
+            status.as_u16()
+        );
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    }
+
+    let parsed = resp.json::<serde_json::Value>().await;
+    let Ok(data) = parsed else {
+        log::warn!("electricitymap_parse_failed=true zone={}", zone);
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    };
+
+    let current = data
+        .get("carbonIntensity")
+        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)));
+    let forecast_next = data
+        .get("carbonIntensityForecast")
+        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+        .or_else(|| cfg.zone_forecast_next.get(zone).copied());
+
+    (
+        current.or_else(|| {
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity))
+        }),
+        forecast_next,
+    )
 }
 
 fn current_error_rate(state: &AppState, zone: &str) -> f64 {

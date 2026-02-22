@@ -9,14 +9,42 @@ Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
 - Built-in multi-objective policy modes and route classes.
 - Per-route feature toggles for carbon, forecasting, time-shift, and plugins.
 - Wasm extensibility for custom routing and energy overrides.
+- Carbon provider modes: `mock`, `slow-mock`, and `electricitymap`.
 - Prometheus metrics, decision logs, and periodic rollups.
 
-## Quickstart
+## Local quickstart (with simulators)
+
+1. Start zone simulators:
+
+```bash
+./examples/node-apps/run-local-zones.sh
+```
+
+2. Start Rilot in another terminal:
 
 ```bash
 cargo build --release
 RUST_LOG=info ./target/release/rilot config.json
 ```
+
+3. Send traffic:
+
+```bash
+curl -H 'x-user-region: us-east' http://127.0.0.1:8080/
+curl -H 'x-user-region: us-west' http://127.0.0.1:8080/
+```
+
+## Enable ElectricityMap
+
+In your config:
+
+- set `carbon.provider` to `electricitymap`
+- set `carbon.electricitymap_api_key`
+- optional: set `carbon.electricitymap_api_token_header` if your token header differs from `auth-token`
+- optionally set `carbon.electricitymap_zone_map` when route zone names differ from ElectricityMap zone IDs
+
+Rilot uses async refresh + cache for provider calls and falls back to cached/default values on timeout.
+Use `carbon.cache_ttl_minutes` to control how long API responses stay in memory before refresh (default `1` minute).
 
 ## Docker research quickstart
 
@@ -42,6 +70,8 @@ docker compose up --build -d
 - Config schema: `src/config.rs`
 - Wasm runtime: `src/wasm_engine.rs`
 - Default config: `config.json`
+- Example config: `examples/config/config.json`
+- Local simulators: `examples/node-apps/`
 - Docker experiment config: `research-kit/config.docker.json`
 
 ## License

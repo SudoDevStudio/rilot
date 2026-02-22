@@ -7,8 +7,13 @@
   },
   "carbon": {
     "provider": "mock",
-    "cache_ttl_secs": 45,
+    "cache_ttl_minutes": 1,
     "provider_timeout_ms": 75,
+    "electricitymap_base_url": "https://api.electricitymap.org",
+    "electricitymap_api_key": null,
+    "electricitymap_api_token_header": "auth-token",
+    "electricitymap_zone_map": {},
+    "electricitymap_disable_estimations": false,
     "default_carbon_intensity": 420,
     "zone_current": {
       "us-east": 430,
