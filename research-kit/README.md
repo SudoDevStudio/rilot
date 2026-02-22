@@ -7,8 +7,8 @@ This folder provides a reproducible Docker workflow for evaluating Rilot routing
 - `docker-compose.yml`: starts Rilot, two zone backends, and Prometheus.
 - `config.docker.json`: Docker-native routing and policy config.
 - `prometheus.yml`: scrape config for `/metrics`.
-- `scripts/run_experiment.sh`: basic load generation and metric snapshot export.
-- `carbon-traces/us-grid-sample.csv`: sample real-trace-like dataset format.
+- `scripts/run_experiment.sh`: load generation and metric snapshot export.
+- `carbon-traces/us-grid-sample.csv`: sample trace format.
 
 ## Quickstart
 
@@ -18,3 +18,9 @@ docker compose up --build -d
 ```
 
 Outputs are written to `./results` by default.
+
+## Related docs
+
+- `docs/research-toolkit.md`
+- `docs/runtime-behavior.md`
+- `docs/config-reference.md`
