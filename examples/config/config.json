@@ -6,7 +6,7 @@
     "rollup_interval_secs": 30
   },
   "carbon": {
-    "provider": "mock",
+    "provider": "electricitymap-local",
     "cache_ttl_minutes": 1,
     "provider_timeout_ms": 75,
     "electricitymap_base_url": "https://api.electricitymap.org",
@@ -14,6 +14,7 @@
     "electricitymap_api_token_header": "auth-token",
     "electricitymap_zone_map": {},
     "electricitymap_disable_estimations": false,
+    "electricitymap_local_fixture": "./research-kit/carbon-traces/electricitymap-latest-sample.json",
     "default_carbon_intensity": 420,
     "zone_current": {
       "us-east": 430,

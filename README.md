@@ -9,7 +9,7 @@ Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
 - Built-in multi-objective policy modes and route classes.
 - Per-route feature toggles for carbon, forecasting, time-shift, and plugins.
 - Wasm extensibility for custom routing and energy overrides.
-- Carbon provider modes: `mock`, `slow-mock`, and `electricitymap`.
+- Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and `electricitymap-local`.
 - Prometheus metrics, decision logs, and periodic rollups.
 - Shared policy crate: `crates/rilot-core` for future adapter targets.
 
@@ -46,6 +46,11 @@ In your config:
 
 Rilot uses async refresh + cache for provider calls and falls back to cached/default values on timeout.
 Use `carbon.cache_ttl_minutes` to control how long API responses stay in memory before refresh (default `1` minute).
+
+For local/offline testing, use:
+
+- `carbon.provider = "electricitymap-local"`
+- `carbon.electricitymap_local_fixture = "<path to fixture json>"`
 
 ## Docker research quickstart
 

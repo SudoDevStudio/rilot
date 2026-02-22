@@ -7,7 +7,7 @@
 - `metrics.decision_log_sample_rate` (float 0..1): full decision log sampling rate.
 - `metrics.rollup_interval_secs` (u64): periodic rollup log interval.
 
-- `carbon.provider` (string): `mock`, `slow-mock`, `electricitymap`, or custom future provider.
+- `carbon.provider` (string): `mock`, `slow-mock`, `electricitymap`, `electricitymap-local`, or custom future provider.
 - `carbon.cache_ttl_minutes` (u64): signal TTL per zone, in minutes.
 - `carbon.provider_timeout_ms` (u64): timeout for provider refresh calls.
 - `carbon.default_carbon_intensity` (float): fallback intensity.
@@ -21,6 +21,7 @@ ElectricityMap fields:
 - `carbon.electricitymap_api_token_header` (string): auth header name, default `auth-token`.
 - `carbon.electricitymap_zone_map` (map route-zone->electricitymap-zone): optional mapping when names differ.
 - `carbon.electricitymap_disable_estimations` (bool): pass through to ElectricityMap latest endpoint query.
+- `carbon.electricitymap_local_fixture` (string|null): path to local JSON fixture for offline testing (`electricitymap-local` mode).
 
 - `proxies` (array): route definitions.
 

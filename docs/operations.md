@@ -32,6 +32,18 @@ To enable live carbon data:
 
 Rilot reads provider data through async refresh and cache. Requests do not block on provider calls.
 
+## Offline ElectricityMap-style testing
+
+Use local fixture mode when you want deterministic behavior without calling the public API:
+
+1. Set `carbon.provider` to `electricitymap-local`.
+2. Set `carbon.electricitymap_local_fixture` to a JSON file path.
+3. Keep `carbon.cache_ttl_minutes` at your desired refresh window.
+
+Fixture file example is included at:
+
+- `research-kit/carbon-traces/electricitymap-latest-sample.json`
+
 ## Docker run
 
 ```bash

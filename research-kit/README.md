@@ -9,6 +9,7 @@ This folder provides a reproducible Docker workflow for evaluating Rilot routing
 - `prometheus.yml`: scrape config for `/metrics`.
 - `scripts/run_experiment.sh`: load generation and metric snapshot export.
 - `carbon-traces/us-grid-sample.csv`: sample trace format.
+- `carbon-traces/electricitymap-latest-sample.json`: ElectricityMap-style local fixture.
 
 ## Quickstart
 

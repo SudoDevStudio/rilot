@@ -14,6 +14,7 @@
     "electricitymap_api_token_header": "auth-token",
     "electricitymap_zone_map": {},
     "electricitymap_disable_estimations": false,
+    "electricitymap_local_fixture": "./carbon-traces/electricitymap-latest-sample.json",
     "default_carbon_intensity": 420,
     "zone_current": {
       "us-east": 430,

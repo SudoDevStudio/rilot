@@ -108,6 +108,8 @@ pub struct CarbonProviderConfig {
     pub electricitymap_zone_map: HashMap<String, String>,
     #[serde(default)]
     pub electricitymap_disable_estimations: bool,
+    #[serde(default)]
+    pub electricitymap_local_fixture: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -221,6 +223,7 @@ impl Default for CarbonProviderConfig {
             electricitymap_api_token_header: default_electricitymap_api_token_header(),
             electricitymap_zone_map: HashMap::new(),
             electricitymap_disable_estimations: false,
+            electricitymap_local_fixture: None,
         }
     }
 }

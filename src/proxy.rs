@@ -10,6 +10,7 @@ use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -802,6 +803,9 @@ async fn fetch_provider_signal(zone: &str, cfg: &config::CarbonProviderConfig) -
     if cfg.provider == "electricitymap" {
         return fetch_electricitymap_signal(zone, cfg).await;
     }
+    if cfg.provider == "electricitymap-local" {
+        return fetch_electricitymap_local_signal(zone, cfg);
+    }
 
     if cfg.provider == "slow-mock" {
         tokio::time::sleep(Duration::from_millis(cfg.provider_timeout_ms + 10)).await;
@@ -853,6 +857,11 @@ async fn fetch_electricitymap_signal(
     } else {
         "false"
     };
+    // ElectricityMap API:
+    // GET /v3/carbon-intensity/latest?zone=<ZONE>&disableEstimations=<bool>
+    // Expected fields read from response JSON:
+    // - carbonIntensity
+    // - carbonIntensityForecast (optional)
     let url = format!(
         "{}/v3/carbon-intensity/latest?zone={}&disableEstimations={}",
         base, external_zone, disable_estimations
@@ -921,6 +930,68 @@ async fn fetch_electricitymap_signal(
                 .or(Some(cfg.default_carbon_intensity))
         }),
         forecast_next,
+    )
+}
+
+fn fetch_electricitymap_local_signal(
+    zone: &str,
+    cfg: &config::CarbonProviderConfig,
+) -> (Option<f64>, Option<f64>) {
+    let Some(path) = cfg.electricitymap_local_fixture.as_ref() else {
+        log::warn!("electricitymap_local_fixture_missing=true zone={}", zone);
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    };
+
+    let parsed = std::fs::read_to_string(Path::new(path))
+        .ok()
+        .and_then(|txt| serde_json::from_str::<serde_json::Value>(&txt).ok());
+    let Some(doc) = parsed else {
+        log::warn!("electricitymap_local_fixture_parse_failed=true zone={} path={}", zone, path);
+        return (
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity)),
+            cfg.zone_forecast_next.get(zone).copied(),
+        );
+    };
+
+    let external_zone = cfg
+        .electricitymap_zone_map
+        .get(zone)
+        .cloned()
+        .unwrap_or_else(|| zone.to_string());
+
+    // Fixture can be either:
+    // 1) {"carbonIntensity": ..., "carbonIntensityForecast": ...}
+    // 2) {"zones": {"<zone>": {"carbonIntensity": ..., "carbonIntensityForecast": ...}}}
+    let zone_obj = doc
+        .get("zones")
+        .and_then(|zones| zones.get(&external_zone))
+        .unwrap_or(&doc);
+
+    let current = zone_obj
+        .get("carbonIntensity")
+        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)));
+    let forecast = zone_obj
+        .get("carbonIntensityForecast")
+        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+        .or_else(|| cfg.zone_forecast_next.get(zone).copied());
+
+    (
+        current.or_else(|| {
+            cfg.zone_current
+                .get(zone)
+                .copied()
+                .or(Some(cfg.default_carbon_intensity))
+        }),
+        forecast,
     )
 }
 

@@ -17,6 +17,12 @@ Minimal Node.js apps to simulate all major Rilot scenarios.
 ./examples/node-apps/run-local-zones.sh
 ```
 
+Run Rilot with the scenario config (uses local ElectricityMap-style fixture):
+
+```bash
+RUST_LOG=info ./target/release/rilot examples/config/config.json
+```
+
 ## Scenario routes (with `examples/config/config.json`)
 
 - `/checkout/*` -> strict-local route class

@@ -1,0 +1,20 @@
+{
+  "zones": {
+    "us-east": {
+      "carbonIntensity": 438,
+      "carbonIntensityForecast": 365
+    },
+    "us-west": {
+      "carbonIntensity": 292,
+      "carbonIntensityForecast": 271
+    },
+    "bg-east": {
+      "carbonIntensity": 318,
+      "carbonIntensityForecast": 284
+    },
+    "bg-west": {
+      "carbonIntensity": 214,
+      "carbonIntensityForecast": 176
+    }
+  }
+}
