@@ -1,12 +1,12 @@
-# Edge Adapter Scaffold
+# Edge Adapter Roadmap
 
-This folder scaffolds a future WebAssembly edge deployment target.
+This folder captures the planned WebAssembly edge deployment target.
 
-Current status:
+Positioning for the paper:
 
-- Not production-ready.
-- Intended to host a platform-specific adapter (Cloudflare/Fastly/etc).
-- Uses `rilot-core` as the shared routing decision engine.
+- This is a future-work track for provider-native edge execution.
+- It is intended to host a platform-specific adapter (Cloudflare/Fastly/etc).
+- It uses `rilot-core` as the shared routing decision engine.
 
 ## Design intent
 
@@ -15,8 +15,8 @@ Current status:
 3. Map selected backend to platform-specific fetch/forward APIs.
 4. Emit decision metadata for observability.
 
-## Next implementation steps
+## Planned implementation steps
 
 - Add concrete adapter for one provider runtime.
-- Replace placeholder WIT/API with real edge host bindings.
+- Replace draft WIT/API with provider host bindings.
 - Add integration tests against `examples/node-apps`.

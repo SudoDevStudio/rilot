@@ -1,5 +1,5 @@
-//! Edge adapter placeholder.
-//! This module is intentionally minimal until a concrete edge runtime target is chosen.
+//! Edge adapter starter module.
+//! This module is a baseline for future provider-specific edge runtime implementations.
 
 #[allow(dead_code)]
 pub fn not_implemented_yet() -> &'static str {

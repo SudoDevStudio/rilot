@@ -2,7 +2,7 @@
 
 Rilot currently runs as a native server host and executes Wasm plugins.
 
-This project now includes a scaffold (`adapters/edge-wasm/`) for a future edge deployment mode where:
+This project includes an edge adapter roadmap (`adapters/edge-wasm/`) as future work for provider-native deployment:
 
 - routing logic is shared through `crates/rilot-core`
 - platform adapter translates requests/responses
@@ -11,9 +11,9 @@ This project now includes a scaffold (`adapters/edge-wasm/`) for a future edge d
 ## What exists today
 
 - `crates/rilot-core`: reusable policy primitives (`classify_route`, `effective_weights`)
-- `adapters/edge-wasm`: placeholder adapter skeleton and WIT contract draft
+- `adapters/edge-wasm`: draft adapter layout and WIT contract
 
-## What still needs implementation
+## Future work plan
 
 1. Pick target edge provider/runtime.
 2. Implement adapter request normalization and backend forwarding.

@@ -72,7 +72,7 @@ docker compose up --build -d
 - Config schema: `src/config.rs`
 - Wasm runtime: `src/wasm_engine.rs`
 - Policy core: `crates/rilot-core/src/lib.rs`
-- Edge adapter scaffold: `adapters/edge-wasm/`
+- Edge adapter roadmap (future work): `adapters/edge-wasm/`
 - Default config: `config.json`
 - Example config: `examples/config/config.json`
 - Local simulators: `examples/node-apps/`
