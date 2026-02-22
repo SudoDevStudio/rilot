@@ -2,6 +2,9 @@
 name = "examples"
 version = "0.1.0"
 edition = "2021"
+description = "Wasm component examples for Rilot plugin overrides and custom routing logic."
+license = "MIT"
+repository = "https://github.com/SudoDevStudio/rilot"
 
 [lib]
 crate-type = ["cdylib"]

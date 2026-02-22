@@ -3,9 +3,9 @@ name = "rilot"
 version = "0.1.0"
 edition = "2021"
 authors = ["Maninderpreet Singh <maninderpreetchanna@gmail.com>"]
-description = "Rilot - A Rust-based high-performance reverse proxy with dynamic WebAssembly overrides."
+description = "Carbon Cursor edge routing proxy with multi-objective policies, Wasm extensibility, and carbon-aware observability."
 license = "MIT"
-repository = "https://github.com/maninderpreetsingh/rilot"
+repository = "https://github.com/SudoDevStudio/rilot"
 
 
 [dependencies]
