@@ -11,9 +11,11 @@ This documentation set covers architecture, configuration, runtime behavior, plu
 5. `docs/wasm-carbon-plugin.md` (plugin contract)
 6. `docs/operations.md` (deploy, observe, troubleshoot)
 7. `docs/research-toolkit.md` (experiment methodology)
+8. `docs/edge-target.md` (edge-Wasm deployment plan)
 
 ## Audience map
 
 - Platform engineers: `docs/operations.md`, `docs/config-reference.md`
 - Researchers: `docs/research-toolkit.md`, `docs/runtime-behavior.md`
 - Plugin developers: `docs/wasm-carbon-plugin.md`
+- Adapter implementers: `docs/edge-target.md`, `adapters/edge-wasm/README.md`

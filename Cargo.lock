@@ -1800,6 +1800,7 @@ dependencies = [
  "log",
  "once_cell",
  "reqwest",
+ "rilot-core",
  "serde",
  "serde_json",
  "tokio",
@@ -1807,6 +1808,13 @@ dependencies = [
  "wasmtime-wasi",
  "wasmtime-wasi-http",
  "wasmtime-wasi-io",
+]
+
+[[package]]
+name = "rilot-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

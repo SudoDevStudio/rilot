@@ -104,15 +104,6 @@ struct StaticState {
 }
 
 #[derive(Clone)]
-struct RouteClassified {
-    route_class: String,
-    carbon_cursor_enabled: bool,
-    forecasting_enabled: bool,
-    time_shift_enabled: bool,
-    plugin_enabled: bool,
-}
-
-#[derive(Clone)]
 struct ZoneScore {
     zone: ZoneCandidate,
     score: f64,
@@ -257,7 +248,16 @@ async fn handle_request(
     };
     let body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
-    let classified = classify_route(proxy_config, &headers_map);
+    let classified = rilot_core::classify_route(
+        &rilot_core::RoutePolicy {
+            route_class: proxy_config.policy.route_class.clone(),
+            carbon_cursor_enabled: proxy_config.policy.carbon_cursor_enabled,
+            forecasting_enabled: proxy_config.policy.forecasting_enabled,
+            time_shift_enabled: proxy_config.policy.time_shift_enabled,
+            plugin_enabled: proxy_config.policy.plugin_enabled,
+        },
+        &headers_map,
+    );
     let decision = choose_zone(
         proxy_config,
         &classified,
@@ -436,44 +436,9 @@ fn collect_headers(req: &Request<Body>) -> HashMap<String, String> {
         .collect()
 }
 
-fn classify_route(proxy: &config::ProxyConfig, headers: &HashMap<String, String>) -> RouteClassified {
-    let mut route_class = header_or_none(headers, "x-rilot-class")
-        .unwrap_or_else(|| proxy.policy.route_class.clone());
-    if route_class.is_empty() {
-        route_class = "flexible".to_string();
-    }
-
-    let mut classified = RouteClassified {
-        route_class,
-        carbon_cursor_enabled: bool_override(
-            headers,
-            "x-rilot-carbon-cursor",
-            proxy.policy.carbon_cursor_enabled,
-        ),
-        forecasting_enabled: bool_override(
-            headers,
-            "x-rilot-forecasting",
-            proxy.policy.forecasting_enabled,
-        ),
-        time_shift_enabled: bool_override(
-            headers,
-            "x-rilot-time-shift",
-            proxy.policy.time_shift_enabled,
-        ),
-        plugin_enabled: bool_override(headers, "x-rilot-plugin", proxy.policy.plugin_enabled),
-    };
-
-    // strict-local routes always bypass plugin execution and time-shifting.
-    if classified.route_class == "strict-local" {
-        classified.plugin_enabled = false;
-        classified.time_shift_enabled = false;
-    }
-    classified
-}
-
 fn choose_zone(
     proxy: &config::ProxyConfig,
-    classified: &RouteClassified,
+    classified: &rilot_core::RoutePolicy,
     headers: &HashMap<String, String>,
     carbon_cfg: &config::CarbonProviderConfig,
     state: &AppState,
@@ -556,7 +521,15 @@ fn choose_zone(
         return lowest_latency_with_hysteresis(proxy, scores, state);
     }
 
-    let mode_weights = effective_weights(&proxy.policy);
+    let mode_weights = rilot_core::effective_weights(
+        proxy.policy.priority_mode.as_str(),
+        rilot_core::PolicyWeights {
+            w_carbon: proxy.policy.weights.w_carbon,
+            w_latency: proxy.policy.weights.w_latency,
+            w_errors: proxy.policy.weights.w_errors,
+            w_cost: proxy.policy.weights.w_cost,
+        },
+    );
     for score in &mut scores {
         let n_carbon = score.carbon_g_per_kwh.unwrap_or(max_carbon) / max_carbon;
         let n_latency = score.latency_ms / max_latency;
@@ -722,24 +695,6 @@ fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &A
         },
     );
     candidate
-}
-
-fn effective_weights(policy: &config::RoutePolicy) -> config::PolicyWeights {
-    match policy.priority_mode.as_str() {
-        "latency-first" => config::PolicyWeights {
-            w_carbon: 0.15,
-            w_latency: 0.65,
-            w_errors: 0.20,
-            w_cost: 0.0,
-        },
-        "carbon-first" => config::PolicyWeights {
-            w_carbon: 0.70,
-            w_latency: 0.20,
-            w_errors: 0.10,
-            w_cost: 0.0,
-        },
-        _ => policy.weights.clone(),
-    }
 }
 
 fn resolve_zones(proxy: &config::ProxyConfig) -> Vec<ZoneCandidate> {
@@ -1100,7 +1055,7 @@ fn log_decision(
     state: &AppState,
     metrics: &config::MetricsConfig,
     proxy: &config::ProxyConfig,
-    classified: &RouteClassified,
+    classified: &rilot_core::RoutePolicy,
     decision: &Option<ZoneScore>,
     method: &str,
     status: StatusCode,
@@ -1148,14 +1103,6 @@ fn should_log_decision(state: &AppState, sample_rate: f64) -> bool {
 
 fn header_or_none(headers: &HashMap<String, String>, key: &str) -> Option<String> {
     headers.get(key).cloned()
-}
-
-fn bool_override(headers: &HashMap<String, String>, key: &str, default_value: bool) -> bool {
-    match headers.get(key).map(|v| v.as_str()) {
-        Some("1") | Some("true") | Some("on") | Some("yes") => true,
-        Some("0") | Some("false") | Some("off") | Some("no") => false,
-        _ => default_value,
-    }
 }
 
 fn escape_label(value: &str) -> String {

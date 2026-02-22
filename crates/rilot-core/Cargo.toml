@@ -1,0 +1,9 @@
+[package]
+name = "rilot-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Core policy engine for Rilot routing decisions"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }

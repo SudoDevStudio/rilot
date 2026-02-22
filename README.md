@@ -11,6 +11,7 @@ Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
 - Wasm extensibility for custom routing and energy overrides.
 - Carbon provider modes: `mock`, `slow-mock`, and `electricitymap`.
 - Prometheus metrics, decision logs, and periodic rollups.
+- Shared policy crate: `crates/rilot-core` for future adapter targets.
 
 ## Local quickstart (with simulators)
 
@@ -63,12 +64,15 @@ docker compose up --build -d
 - `docs/wasm-carbon-plugin.md`
 - `docs/operations.md`
 - `docs/research-toolkit.md`
+- `docs/edge-target.md`
 
 ## Key files
 
 - Runtime: `src/proxy.rs`
 - Config schema: `src/config.rs`
 - Wasm runtime: `src/wasm_engine.rs`
+- Policy core: `crates/rilot-core/src/lib.rs`
+- Edge adapter scaffold: `adapters/edge-wasm/`
 - Default config: `config.json`
 - Example config: `examples/config/config.json`
 - Local simulators: `examples/node-apps/`
