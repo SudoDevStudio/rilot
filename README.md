@@ -47,3 +47,16 @@ docker compose up --build -d
 ## License
 
 MIT
+
+## How to Cite
+
+If you use Rilot in research, please cite:
+
+```bibtex
+@software{maninderpreet_singh_rilot_2026,
+  author = {Maninderpreet Singh},
+  title = {Rilot: Carbon Cursor Edge Routing},
+  year = {2026},
+  url = {https://github.com/SudoDevStudio/rilot}
+}
+```
