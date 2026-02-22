@@ -19,9 +19,15 @@ Rilot supports a per-route Wasm override (`override_file`) that can replace targ
 {
   "app_url": "http://us-west:5678",
   "headers_to_update": {"x-carbon-policy":"carbon-first"},
-  "headers_to_remove": ["x-debug"]
+  "headers_to_remove": ["x-debug"],
+  "energy_joules_override": 12.4,
+  "carbon_intensity_g_per_kwh_override": 210.0,
+  "energy_source": "tenant-meter-v2"
 }
 ```
+
+`energy_joules_override` is the main extension point for tenant-provided energy models.  
+When present, Rilot uses this value for per-request CO2e accounting instead of host-side estimation.
 
 ## Runtime guardrails
 

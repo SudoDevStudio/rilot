@@ -9,6 +9,7 @@ Rilot is a Rust reverse proxy for per-request carbon-aware routing experiments.
 - Signal cache (current + forecast) with TTL and async refresh.
 - Multi-objective scoring (`carbon`, `latency`, `errors`, `cost`).
 - Per-route toggles: `carbon_cursor_enabled`, `forecasting_enabled`, `time_shift_enabled`, `plugin_enabled`.
+- Plugin-based energy override: tenant plugins can return `energy_joules_override` for per-request accounting.
 - Fail-safe fallback to lowest-latency when carbon signals are missing.
 - Prometheus metrics + structured logs + periodic rollups.
 

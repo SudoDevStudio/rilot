@@ -267,6 +267,9 @@ async fn handle_request(
         .as_ref()
         .map(|d| d.zone.app_uri.clone())
         .unwrap_or_else(|| proxy_config.app_uri.clone());
+    let mut plugin_energy_joules_override: Option<f64> = None;
+    let mut plugin_carbon_intensity_override: Option<f64> = None;
+    let mut plugin_energy_source: Option<String> = None;
     let selected_zone_name = decision
         .as_ref()
         .map(|d| d.zone.name.clone())
@@ -307,6 +310,21 @@ async fn handle_request(
                 Ok(Ok(out)) => {
                     if let Some(new_target) = out.app_url {
                         target_uri_str = new_target;
+                    }
+                    if let Some(v) = out.energy_joules_override {
+                        if v.is_finite() && v >= 0.0 {
+                            plugin_energy_joules_override = Some(v);
+                        }
+                    }
+                    if let Some(v) = out.carbon_intensity_g_per_kwh_override {
+                        if v.is_finite() && v >= 0.0 {
+                            plugin_carbon_intensity_override = Some(v);
+                        }
+                    }
+                    if let Some(source) = out.energy_source {
+                        if !source.trim().is_empty() {
+                            plugin_energy_source = Some(source);
+                        }
                     }
                     for (k, v) in out.headers_to_update {
                         if let (Ok(name), Ok(value)) =
@@ -374,8 +392,11 @@ async fn handle_request(
     increment_in_flight(&state, &selected_zone_name, -1);
 
     let bytes_count = body_bytes.len() as f64;
-    let estimated_energy_j = estimate_energy_joules(elapsed_ms, bytes_count);
-    let carbon_g_per_kwh = decision.as_ref().and_then(|d| d.carbon_g_per_kwh).unwrap_or(0.0);
+    let estimated_energy_j = plugin_energy_joules_override
+        .unwrap_or_else(|| estimate_energy_joules(elapsed_ms, bytes_count));
+    let carbon_g_per_kwh = plugin_carbon_intensity_override
+        .or_else(|| decision.as_ref().and_then(|d| d.carbon_g_per_kwh))
+        .unwrap_or(0.0);
     let co2e_g = estimate_co2e_g(estimated_energy_j, carbon_g_per_kwh);
     record_metrics(
         &state,
@@ -399,6 +420,7 @@ async fn handle_request(
         elapsed_ms,
         co2e_g,
         is_error,
+        plugin_energy_source.as_deref(),
     );
 
     response
@@ -981,6 +1003,7 @@ fn log_decision(
     latency_ms: f64,
     co2e_g: f64,
     is_error: bool,
+    energy_source: Option<&str>,
 ) {
     let log_full = should_log_decision(state, metrics.decision_log_sample_rate) || is_error;
     if !log_full {
@@ -999,7 +1022,8 @@ fn log_decision(
         "latency_ms_estimate": decision.as_ref().map(|d| d.latency_ms),
         "latency_ms_observed": latency_ms,
         "co2e_g": co2e_g,
-        "is_error": is_error
+        "is_error": is_error,
+        "energy_source": energy_source
     });
     log::info!("decision={}", entry);
 }

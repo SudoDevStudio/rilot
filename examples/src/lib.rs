@@ -32,6 +32,12 @@ struct InternalWasmOutput {
     response_headers_to_add: HashMap<String, String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     response_headers_to_remove: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    energy_joules_override: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    carbon_intensity_g_per_kwh_override: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    energy_source: Option<String>,
 }
 
 struct MyComponent;
@@ -87,6 +93,17 @@ impl Guest for MyComponent {
                     final_output.headers_to_remove = map.get("headers_to_remove").or_else(|| map.get("strip_request_headers")).and_then(Value::as_array).map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
                     final_output.response_headers_to_add = map.get("response_headers_to_add").or_else(|| map.get("final_response_headers")).and_then(Value::as_object).map(|obj| obj.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect()).unwrap_or_default();
                     final_output.response_headers_to_remove = map.get("response_headers_to_remove").or_else(|| map.get("strip_response_headers")).and_then(Value::as_array).map(|arr| arr.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+                    final_output.energy_joules_override = map
+                        .get("energy_joules_override")
+                        .or_else(|| map.get("energy_joules_per_request"))
+                        .and_then(Value::as_f64);
+                    final_output.carbon_intensity_g_per_kwh_override = map
+                        .get("carbon_intensity_g_per_kwh_override")
+                        .and_then(Value::as_f64);
+                    final_output.energy_source = map
+                        .get("energy_source")
+                        .and_then(Value::as_str)
+                        .map(String::from);
                     eprintln!("[Wasm/lib.rs] Extracted data: {:?}", final_output);
                 } else {
                     eprintln!("[Wasm/lib.rs] WARNING: API response was valid JSON but not an object.");
