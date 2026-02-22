@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  rilot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: rilot
+    environment:
+      RILOT_HOST: 0.0.0.0
+      RILOT_PORT: 8080
+      RUST_LOG: info
+      RILOT_ENV: production
+    volumes:
+      - ./config.docker.json:/app/config.json:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - us-east
+      - us-west
+
+  us-east:
+    image: hashicorp/http-echo:1.0.0
+    command: ["-listen=:5678", "-text={\"zone\":\"us-east\",\"status\":\"ok\"}"]
+    container_name: us-east
+
+  us-west:
+    image: hashicorp/http-echo:1.0.0
+    command: ["-listen=:5678", "-text={\"zone\":\"us-west\",\"status\":\"ok\"}"]
+    container_name: us-west
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: rilot-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - rilot
