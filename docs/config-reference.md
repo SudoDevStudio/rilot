@@ -11,6 +11,7 @@
 - `carbon.cache_ttl_minutes` (u64): signal TTL per zone, in minutes.
 - `carbon.provider_timeout_ms` (u64): timeout for provider refresh calls.
 - `carbon.default_carbon_intensity` (float): fallback intensity.
+- `carbon.carbon_safe_threshold_g_per_kwh` (float): threshold used to count carbon-safe calls.
 - `carbon.zone_current` (map zone->float): current intensity seed/fallback.
 - `carbon.zone_forecast_next` (map zone->float): forecast seed/fallback.
 
@@ -22,6 +23,7 @@ ElectricityMap fields:
 - `carbon.electricitymap_zone_map` (map route-zone->electricitymap-zone): optional mapping when names differ.
 - `carbon.electricitymap_disable_estimations` (bool): pass through to ElectricityMap latest endpoint query.
 - `carbon.electricitymap_local_fixture` (string|null): path to local JSON fixture for offline testing (`electricitymap-local` mode).
+- `carbon.electricitymap_local_live_reload` (bool): legacy compatibility flag; `electricitymap-local` now always reflects fixture changes per request.
 
 - `proxies` (array): route definitions.
 

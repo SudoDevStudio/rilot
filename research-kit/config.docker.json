@@ -16,6 +16,7 @@
     "electricitymap_disable_estimations": false,
     "electricitymap_local_fixture": "./carbon-traces/electricitymap-latest-sample.json",
     "default_carbon_intensity": 420,
+    "carbon_safe_threshold_g_per_kwh": 300,
     "zone_current": {
       "us-east": 430,
       "us-west": 300
@@ -23,7 +24,8 @@
     "zone_forecast_next": {
       "us-east": 370,
       "us-west": 290
-    }
+    },
+    "electricitymap_local_live_reload": false
   },
   "proxies": [
     {
@@ -42,7 +44,10 @@
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
-          "tags": ["us", "tier-1"]
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
           "name": "us-west",
@@ -51,7 +56,10 @@
           "base_rtt_ms": 36,
           "cost_weight": 0.2,
           "max_in_flight": 200,
-          "tags": ["us", "green"]
+          "tags": [
+            "us",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -69,7 +77,7 @@
           "w_carbon": 0.55,
           "w_latency": 0.3,
           "w_errors": 0.15,
-          "w_cost": 0.0
+          "w_cost": 0
         },
         "forecasting_enabled": true,
         "time_shift_enabled": true,

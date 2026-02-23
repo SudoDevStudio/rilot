@@ -51,6 +51,9 @@ For local/offline testing, use:
 
 - `carbon.provider = "electricitymap-local"`
 - `carbon.electricitymap_local_fixture = "<path to fixture json>"`
+- local fixture updates are reflected immediately on each request
+
+`carbon.cache_ttl_minutes` (default `1` minute) still applies to non-local providers.
 
 ## Docker research quickstart
 

@@ -16,6 +16,7 @@
     "electricitymap_disable_estimations": false,
     "electricitymap_local_fixture": "./research-kit/carbon-traces/electricitymap-latest-sample.json",
     "default_carbon_intensity": 420,
+    "carbon_safe_threshold_g_per_kwh": 300,
     "zone_current": {
       "us-east": 430,
       "us-west": 300,
@@ -29,7 +30,8 @@
       "bg-east": 290,
       "bg-west": 170,
       "checkout-local": 395
-    }
+    },
+    "electricitymap_local_live_reload": false
   },
   "proxies": [
     {
@@ -46,9 +48,12 @@
           "region": "us-east",
           "app_uri": "http://127.0.0.1:5603",
           "base_rtt_ms": 12,
-          "cost_weight": 0.40,
+          "cost_weight": 0.4,
           "max_in_flight": 250,
-          "tags": ["critical", "local-only"]
+          "tags": [
+            "critical",
+            "local-only"
+          ]
         }
       ],
       "policy": {
@@ -57,21 +62,23 @@
         "priority_mode": "latency-first",
         "constraints": {
           "max_candidates": 1,
-          "zone_allowlist": ["checkout-local"],
+          "zone_allowlist": [
+            "checkout-local"
+          ],
           "max_added_latency_ms": 10,
           "p95_latency_budget_ms": 90,
           "max_error_rate": 0.02
         },
         "weights": {
-          "w_carbon": 0.00,
-          "w_latency": 0.90,
-          "w_errors": 0.10,
-          "w_cost": 0.0
+          "w_carbon": 0,
+          "w_latency": 0.9,
+          "w_errors": 0.1,
+          "w_cost": 0
         },
         "forecasting_enabled": false,
         "time_shift_enabled": false,
         "forecast_window_minutes": 0,
-        "forecast_min_improvement_ratio": 0.10,
+        "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.01,
@@ -96,16 +103,22 @@
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
-          "tags": ["us", "tier-1"]
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
           "name": "us-west",
           "region": "us-west",
           "app_uri": "http://127.0.0.1:5602",
           "base_rtt_ms": 36,
-          "cost_weight": 0.20,
+          "cost_weight": 0.2,
           "max_in_flight": 200,
-          "tags": ["us", "green"]
+          "tags": [
+            "us",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -121,14 +134,14 @@
         },
         "weights": {
           "w_carbon": 0.55,
-          "w_latency": 0.30,
+          "w_latency": 0.3,
           "w_errors": 0.15,
-          "w_cost": 0.0
+          "w_cost": 0
         },
         "forecasting_enabled": true,
         "time_shift_enabled": false,
         "forecast_window_minutes": 30,
-        "forecast_min_improvement_ratio": 0.10,
+        "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.04,
@@ -153,16 +166,22 @@
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
-          "tags": ["us", "tier-1"]
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
           "name": "us-west",
           "region": "us-west",
           "app_uri": "http://127.0.0.1:5602",
           "base_rtt_ms": 36,
-          "cost_weight": 0.20,
+          "cost_weight": 0.2,
           "max_in_flight": 200,
-          "tags": ["us", "green"]
+          "tags": [
+            "us",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -171,21 +190,23 @@
         "priority_mode": "latency-first",
         "constraints": {
           "max_candidates": 4,
-          "zone_allowlist": ["tag:us"],
+          "zone_allowlist": [
+            "tag:us"
+          ],
           "max_added_latency_ms": 30,
           "p95_latency_budget_ms": 180,
           "max_error_rate": 0.05
         },
         "weights": {
-          "w_carbon": 0.20,
+          "w_carbon": 0.2,
           "w_latency": 0.65,
           "w_errors": 0.15,
-          "w_cost": 0.0
+          "w_cost": 0
         },
         "forecasting_enabled": false,
         "time_shift_enabled": false,
         "forecast_window_minutes": 0,
-        "forecast_min_improvement_ratio": 0.10,
+        "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.03,
@@ -210,7 +231,10 @@
           "base_rtt_ms": 60,
           "cost_weight": 0.15,
           "max_in_flight": 150,
-          "tags": ["background", "east"]
+          "tags": [
+            "background",
+            "east"
+          ]
         },
         {
           "name": "bg-west",
@@ -219,7 +243,10 @@
           "base_rtt_ms": 80,
           "cost_weight": 0.12,
           "max_in_flight": 150,
-          "tags": ["background", "green"]
+          "tags": [
+            "background",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -228,16 +255,18 @@
         "priority_mode": "carbon-first",
         "constraints": {
           "max_candidates": 6,
-          "zone_allowlist": ["tag:background"],
+          "zone_allowlist": [
+            "tag:background"
+          ],
           "max_added_latency_ms": 120,
           "p95_latency_budget_ms": 400,
           "max_error_rate": 0.08
         },
         "weights": {
-          "w_carbon": 0.70,
-          "w_latency": 0.20,
-          "w_errors": 0.10,
-          "w_cost": 0.0
+          "w_carbon": 0.7,
+          "w_latency": 0.2,
+          "w_errors": 0.1,
+          "w_cost": 0
         },
         "forecasting_enabled": true,
         "time_shift_enabled": true,
@@ -268,16 +297,22 @@
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
-          "tags": ["us", "tier-1"]
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
           "name": "us-west",
           "region": "us-west",
           "app_uri": "http://127.0.0.1:5602",
           "base_rtt_ms": 36,
-          "cost_weight": 0.20,
+          "cost_weight": 0.2,
           "max_in_flight": 200,
-          "tags": ["us", "green"]
+          "tags": [
+            "us",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -292,15 +327,15 @@
           "max_error_rate": 0.05
         },
         "weights": {
-          "w_carbon": 0.40,
-          "w_latency": 0.30,
-          "w_errors": 0.20,
-          "w_cost": 0.10
+          "w_carbon": 0.4,
+          "w_latency": 0.3,
+          "w_errors": 0.2,
+          "w_cost": 0.1
         },
         "forecasting_enabled": true,
         "time_shift_enabled": false,
         "forecast_window_minutes": 30,
-        "forecast_min_improvement_ratio": 0.10,
+        "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.04,
@@ -325,16 +360,22 @@
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
-          "tags": ["us", "tier-1"]
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
           "name": "us-west",
           "region": "us-west",
           "app_uri": "http://127.0.0.1:5602",
           "base_rtt_ms": 36,
-          "cost_weight": 0.20,
+          "cost_weight": 0.2,
           "max_in_flight": 200,
-          "tags": ["us", "green"]
+          "tags": [
+            "us",
+            "green"
+          ]
         }
       ],
       "policy": {
@@ -350,14 +391,14 @@
         },
         "weights": {
           "w_carbon": 0.55,
-          "w_latency": 0.30,
+          "w_latency": 0.3,
           "w_errors": 0.15,
-          "w_cost": 0.0
+          "w_cost": 0
         },
         "forecasting_enabled": true,
         "time_shift_enabled": false,
         "forecast_window_minutes": 30,
-        "forecast_min_improvement_ratio": 0.10,
+        "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.04,

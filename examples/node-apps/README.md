@@ -23,6 +23,18 @@ Run Rilot with the scenario config (uses local ElectricityMap-style fixture):
 RUST_LOG=info ./target/release/rilot examples/config/config.json
 ```
 
+## One-command scenario report for reviewers
+
+```bash
+python examples/scripts/run_all_scenarios_report.py
+```
+
+This runs all scenario routes and prints:
+
+- total requests
+- carbon-safe calls
+- carbon-safe call ratio (%)
+
 ## Scenario routes (with `examples/config/config.json`)
 
 - `/checkout/*` -> strict-local route class

@@ -54,6 +54,7 @@ struct CachedCarbon {
 #[derive(Default, Clone)]
 struct RouteZoneMetrics {
     requests_total: u64,
+    carbon_safe_calls_total: u64,
     errors_total: u64,
     co2e_estimated_total_g: f64,
     energy_estimated_total_j: f64,
@@ -401,6 +402,8 @@ async fn handle_request(
     let carbon_g_per_kwh = plugin_carbon_intensity_override
         .or_else(|| decision.as_ref().and_then(|d| d.carbon_g_per_kwh))
         .unwrap_or(0.0);
+    let is_carbon_safe = carbon_g_per_kwh > 0.0
+        && carbon_g_per_kwh <= config.carbon.carbon_safe_threshold_g_per_kwh;
     let co2e_g = estimate_co2e_g(estimated_energy_j, carbon_g_per_kwh);
     record_metrics(
         &state,
@@ -408,6 +411,7 @@ async fn handle_request(
         &selected_zone_name,
         elapsed_ms,
         carbon_g_per_kwh,
+        is_carbon_safe,
         estimated_energy_j,
         co2e_g,
         is_error,
@@ -734,6 +738,17 @@ fn estimate_latency_ms(user_region: &str, zone: &ZoneCandidate) -> f64 {
 }
 
 fn get_signal_nonblocking(zone: &str, cfg: &config::CarbonProviderConfig, state: &AppState) -> CarbonSignal {
+    // Local fixture mode should reflect file edits immediately for local experiments.
+    if cfg.provider == "electricitymap-local" {
+        // Backward-compatible no-op: local fixture is always live now.
+        let _legacy_live_reload_flag = cfg.electricitymap_local_live_reload;
+        let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
+        return CarbonSignal {
+            current,
+            forecast_next,
+        };
+    }
+
     let now = Instant::now();
     {
         let s = state.inner.read().expect("state lock poisoned");
@@ -1027,6 +1042,7 @@ fn record_metrics(
     zone: &str,
     latency_ms: f64,
     carbon_g_per_kwh: f64,
+    is_carbon_safe: bool,
     energy_j: f64,
     co2e_g: f64,
     is_error: bool,
@@ -1039,6 +1055,9 @@ fn record_metrics(
     let key = (route.to_string(), zone.to_string());
     let m = s.metrics.route_zone.entry(key).or_default();
     m.requests_total += 1;
+    if is_carbon_safe {
+        m.carbon_safe_calls_total += 1;
+    }
     if is_error {
         m.errors_total += 1;
     }
@@ -1064,6 +1083,8 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
     let s = state.inner.read().expect("state lock poisoned");
     let mut out = String::new();
     out.push_str("# TYPE requests_total counter\n");
+    out.push_str("# TYPE carbon_safe_calls_total counter\n");
+    out.push_str("# TYPE carbon_safe_call_ratio gauge\n");
     out.push_str("# TYPE errors_total counter\n");
     out.push_str("# TYPE latency_ms_bucket counter\n");
     out.push_str("# TYPE carbon_intensity_g_per_kwh gauge\n");
@@ -1076,6 +1097,23 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
             escape_label(route),
             escape_label(zone),
             m.requests_total
+        ));
+        out.push_str(&format!(
+            "carbon_safe_calls_total{{route=\"{}\",zone=\"{}\"}} {}\n",
+            escape_label(route),
+            escape_label(zone),
+            m.carbon_safe_calls_total
+        ));
+        let safe_ratio = if m.requests_total > 0 {
+            m.carbon_safe_calls_total as f64 / m.requests_total as f64
+        } else {
+            0.0
+        };
+        out.push_str(&format!(
+            "carbon_safe_call_ratio{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
+            escape_label(route),
+            escape_label(zone),
+            safe_ratio
         ));
         out.push_str(&format!(
             "errors_total{{route=\"{}\",zone=\"{}\"}} {}\n",

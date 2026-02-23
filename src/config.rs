@@ -92,6 +92,8 @@ pub struct CarbonProviderConfig {
     pub cache_ttl_minutes: u64,
     #[serde(default = "default_default_carbon_intensity")]
     pub default_carbon_intensity: f64,
+    #[serde(default = "default_carbon_safe_threshold_g_per_kwh")]
+    pub carbon_safe_threshold_g_per_kwh: f64,
     #[serde(default)]
     pub zone_current: HashMap<String, f64>,
     #[serde(default)]
@@ -110,6 +112,8 @@ pub struct CarbonProviderConfig {
     pub electricitymap_disable_estimations: bool,
     #[serde(default)]
     pub electricitymap_local_fixture: Option<String>,
+    #[serde(default = "default_false")]
+    pub electricitymap_local_live_reload: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -215,6 +219,7 @@ impl Default for CarbonProviderConfig {
             provider: default_carbon_provider(),
             cache_ttl_minutes: default_cache_ttl_minutes(),
             default_carbon_intensity: default_default_carbon_intensity(),
+            carbon_safe_threshold_g_per_kwh: default_carbon_safe_threshold_g_per_kwh(),
             zone_current: HashMap::new(),
             zone_forecast_next: HashMap::new(),
             provider_timeout_ms: default_provider_timeout_ms(),
@@ -224,6 +229,7 @@ impl Default for CarbonProviderConfig {
             electricitymap_zone_map: HashMap::new(),
             electricitymap_disable_estimations: false,
             electricitymap_local_fixture: None,
+            electricitymap_local_live_reload: default_false(),
         }
     }
 }
@@ -297,6 +303,10 @@ fn default_cache_ttl_minutes() -> u64 {
 
 fn default_default_carbon_intensity() -> f64 {
     450.0
+}
+
+fn default_carbon_safe_threshold_g_per_kwh() -> f64 {
+    300.0
 }
 
 fn default_metrics_path() -> String {
