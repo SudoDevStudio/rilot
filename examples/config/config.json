@@ -1,21 +1,411 @@
 {
-    "proxies": [
+  "metrics": {
+    "enabled": true,
+    "path": "/metrics",
+    "decision_log_sample_rate": 0.2,
+    "rollup_interval_secs": 30
+  },
+  "carbon": {
+    "provider": "electricitymap-local",
+    "cache_ttl_minutes": 1,
+    "provider_timeout_ms": 75,
+    "electricitymap_base_url": "https://api.electricitymap.org",
+    "electricitymap_api_key": null,
+    "electricitymap_api_token_header": "auth-token",
+    "electricitymap_zone_map": {},
+    "electricitymap_disable_estimations": false,
+    "electricitymap_local_fixture": "./research-kit/carbon-traces/electricitymap-latest-sample.json",
+    "default_carbon_intensity": 420,
+    "carbon_safe_threshold_g_per_kwh": 300,
+    "zone_current": {
+      "us-east": 430,
+      "us-west": 300,
+      "bg-east": 320,
+      "bg-west": 210,
+      "checkout-local": 410
+    },
+    "zone_forecast_next": {
+      "us-east": 360,
+      "us-west": 290,
+      "bg-east": 290,
+      "bg-west": 170,
+      "checkout-local": 395
+    },
+    "electricitymap_local_live_reload": false
+  },
+  "proxies": [
+    {
+      "app_name": "checkout-service",
+      "app_uri": "http://127.0.0.1:5603",
+      "rewrite": "none",
+      "rule": {
+        "path": "/checkout",
+        "type": "contain"
+      },
+      "zones": [
         {
-            "app_name": "App 1",
-            "app_uri": "http://127.0.0.1:5502",
-            "override_file": "Absolute path to override examples.wasm",
-            "rule": {
-                "path": "/",
-                "type": "exact"
-            }
+          "name": "checkout-local",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5603",
+          "base_rtt_ms": 12,
+          "cost_weight": 0.4,
+          "max_in_flight": 250,
+          "tags": [
+            "critical",
+            "local-only"
+          ]
+        }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": false,
+        "route_class": "strict-local",
+        "priority_mode": "latency-first",
+        "constraints": {
+          "max_candidates": 1,
+          "zone_allowlist": [
+            "checkout-local"
+          ],
+          "max_added_latency_ms": 10,
+          "p95_latency_budget_ms": 90,
+          "max_error_rate": 0.02
+        },
+        "weights": {
+          "w_carbon": 0,
+          "w_latency": 0.9,
+          "w_errors": 0.1,
+          "w_cost": 0
+        },
+        "forecasting_enabled": false,
+        "time_shift_enabled": false,
+        "forecast_window_minutes": 0,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.01,
+        "min_switch_interval_secs": 30,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 25
+      }
+    },
+    {
+      "app_name": "search-service",
+      "app_uri": "http://127.0.0.1:5601",
+      "rewrite": "none",
+      "rule": {
+        "path": "/search",
+        "type": "contain"
+      },
+      "zones": [
+        {
+          "name": "us-east",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5601",
+          "base_rtt_ms": 24,
+          "cost_weight": 0.25,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "tier-1"
+          ]
         },
         {
-            "app_name": "App 2",
-            "app_uri": "http://127.0.0.1:5501/",
-            "rule": {
-                "path": "/app2",
-                "type": "contain"
-            }
+          "name": "us-west",
+          "region": "us-west",
+          "app_uri": "http://127.0.0.1:5602",
+          "base_rtt_ms": 36,
+          "cost_weight": 0.2,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "green"
+          ]
         }
-    ]
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "flexible",
+        "priority_mode": "balanced",
+        "constraints": {
+          "max_candidates": 8,
+          "zone_allowlist": [],
+          "max_added_latency_ms": 50,
+          "p95_latency_budget_ms": 220,
+          "max_error_rate": 0.05
+        },
+        "weights": {
+          "w_carbon": 0.55,
+          "w_latency": 0.3,
+          "w_errors": 0.15,
+          "w_cost": 0
+        },
+        "forecasting_enabled": true,
+        "time_shift_enabled": false,
+        "forecast_window_minutes": 30,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.04,
+        "min_switch_interval_secs": 20,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 25
+      }
+    },
+    {
+      "app_name": "content-service",
+      "app_uri": "http://127.0.0.1:5601",
+      "rewrite": "none",
+      "rule": {
+        "path": "/content",
+        "type": "contain"
+      },
+      "zones": [
+        {
+          "name": "us-east",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5601",
+          "base_rtt_ms": 24,
+          "cost_weight": 0.25,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "tier-1"
+          ]
+        },
+        {
+          "name": "us-west",
+          "region": "us-west",
+          "app_uri": "http://127.0.0.1:5602",
+          "base_rtt_ms": 36,
+          "cost_weight": 0.2,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "green"
+          ]
+        }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "flexible",
+        "priority_mode": "latency-first",
+        "constraints": {
+          "max_candidates": 4,
+          "zone_allowlist": [
+            "tag:us"
+          ],
+          "max_added_latency_ms": 30,
+          "p95_latency_budget_ms": 180,
+          "max_error_rate": 0.05
+        },
+        "weights": {
+          "w_carbon": 0.2,
+          "w_latency": 0.65,
+          "w_errors": 0.15,
+          "w_cost": 0
+        },
+        "forecasting_enabled": false,
+        "time_shift_enabled": false,
+        "forecast_window_minutes": 0,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.03,
+        "min_switch_interval_secs": 15,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 25
+      }
+    },
+    {
+      "app_name": "background-service",
+      "app_uri": "http://127.0.0.1:5604",
+      "rewrite": "none",
+      "rule": {
+        "path": "/batch",
+        "type": "contain"
+      },
+      "zones": [
+        {
+          "name": "bg-east",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5604",
+          "base_rtt_ms": 60,
+          "cost_weight": 0.15,
+          "max_in_flight": 150,
+          "tags": [
+            "background",
+            "east"
+          ]
+        },
+        {
+          "name": "bg-west",
+          "region": "us-west",
+          "app_uri": "http://127.0.0.1:5605",
+          "base_rtt_ms": 80,
+          "cost_weight": 0.12,
+          "max_in_flight": 150,
+          "tags": [
+            "background",
+            "green"
+          ]
+        }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "background",
+        "priority_mode": "carbon-first",
+        "constraints": {
+          "max_candidates": 6,
+          "zone_allowlist": [
+            "tag:background"
+          ],
+          "max_added_latency_ms": 120,
+          "p95_latency_budget_ms": 400,
+          "max_error_rate": 0.08
+        },
+        "weights": {
+          "w_carbon": 0.7,
+          "w_latency": 0.2,
+          "w_errors": 0.1,
+          "w_cost": 0
+        },
+        "forecasting_enabled": true,
+        "time_shift_enabled": true,
+        "forecast_window_minutes": 30,
+        "forecast_min_improvement_ratio": 0.08,
+        "max_defer_seconds": 2,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.05,
+        "min_switch_interval_secs": 20,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 25
+      }
+    },
+    {
+      "app_name": "plugin-energy-service",
+      "app_uri": "http://127.0.0.1:5601",
+      "override_file": "./examples/target/wasm32-wasip1/release/examples.wasm",
+      "rewrite": "none",
+      "rule": {
+        "path": "/plugin-energy",
+        "type": "contain"
+      },
+      "zones": [
+        {
+          "name": "us-east",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5601",
+          "base_rtt_ms": 24,
+          "cost_weight": 0.25,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "tier-1"
+          ]
+        },
+        {
+          "name": "us-west",
+          "region": "us-west",
+          "app_uri": "http://127.0.0.1:5602",
+          "base_rtt_ms": 36,
+          "cost_weight": 0.2,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "green"
+          ]
+        }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "flexible",
+        "priority_mode": "balanced",
+        "constraints": {
+          "max_candidates": 8,
+          "zone_allowlist": [],
+          "max_added_latency_ms": 60,
+          "p95_latency_budget_ms": 250,
+          "max_error_rate": 0.05
+        },
+        "weights": {
+          "w_carbon": 0.4,
+          "w_latency": 0.3,
+          "w_errors": 0.2,
+          "w_cost": 0.1
+        },
+        "forecasting_enabled": true,
+        "time_shift_enabled": false,
+        "forecast_window_minutes": 30,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.04,
+        "min_switch_interval_secs": 15,
+        "plugin_enabled": true,
+        "plugin_timeout_ms": 25
+      }
+    },
+    {
+      "app_name": "default-fallback",
+      "app_uri": "http://127.0.0.1:5601",
+      "rewrite": "none",
+      "rule": {
+        "path": "/",
+        "type": "contain"
+      },
+      "zones": [
+        {
+          "name": "us-east",
+          "region": "us-east",
+          "app_uri": "http://127.0.0.1:5601",
+          "base_rtt_ms": 24,
+          "cost_weight": 0.25,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "tier-1"
+          ]
+        },
+        {
+          "name": "us-west",
+          "region": "us-west",
+          "app_uri": "http://127.0.0.1:5602",
+          "base_rtt_ms": 36,
+          "cost_weight": 0.2,
+          "max_in_flight": 200,
+          "tags": [
+            "us",
+            "green"
+          ]
+        }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "flexible",
+        "priority_mode": "balanced",
+        "constraints": {
+          "max_candidates": 8,
+          "zone_allowlist": [],
+          "max_added_latency_ms": 50,
+          "p95_latency_budget_ms": 220,
+          "max_error_rate": 0.05
+        },
+        "weights": {
+          "w_carbon": 0.55,
+          "w_latency": 0.3,
+          "w_errors": 0.15,
+          "w_cost": 0
+        },
+        "forecasting_enabled": true,
+        "time_shift_enabled": false,
+        "forecast_window_minutes": 30,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.04,
+        "min_switch_interval_secs": 20,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 25
+      }
+    }
+  ]
 }

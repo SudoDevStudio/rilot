@@ -1,0 +1,20 @@
+package rilot:edge;
+
+interface router {
+  record request-context {
+    method: string,
+    path: string,
+    user-region: option<string>,
+  }
+
+  record decision {
+    backend: string,
+    route-class: string,
+  }
+
+  classify-and-route: func(ctx: request-context) -> decision;
+}
+
+world edge-router {
+  export router;
+}

@@ -1,80 +1,104 @@
-# Rilot - A Configurable Reverse Proxy with Wasm Overrides
+# Rilot: Carbon Cursor Edge Routing
 
-⚡ Fast, lightweight, and pluggable reverse proxy with WebAssembly (WASM) overrides. Built with ❤️ in Rust for microservices, frontend multi-zone architectures, and blazing edge performance.
+Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
 
-## Core Features
+## Highlights
 
-* **Configurable Routing:** Define backends and path-based routing rules (`contain` / `exact` match) in `config.json`.
-* **Wasm Overrides:** Specify a Wasm component (`.wasm`) per rule to execute custom logic.
-* **Dynamic Modification:** Wasm modules can alter target URLs, modify request/response headers, and make external HTTP(S) calls.
-* **WASI & Component Model:** Uses WASI Preview 2 and the Component Model for host-guest interaction (currently via piped stdio).
-* **Performance:** Built on Tokio/Hyper.
-* **Conditional Wasm Loading:**
-    * **Development Mode (default):** Wasm modules are reloaded on each request for live updates ("hot-reloading").
-    * **Production Mode (`RILOT_ENV=production`):** Compiled Wasm components are cached after first use for improved performance.
+- Carbon Cursor routing pipeline: classify, constrain, signal, score.
+- Region-first routing (`x-user-region`) with per-zone metadata.
+- Built-in multi-objective policy modes and route classes.
+- Per-route feature toggles for carbon, forecasting, time-shift, and plugins.
+- Wasm extensibility for custom routing and energy overrides.
+- Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and `electricitymap-local`.
+- Prometheus metrics, decision logs, and periodic rollups.
+- Shared policy crate: `crates/rilot-core` for future adapter targets.
 
-## Configuration (`config.json`)
+## Local quickstart (with simulators)
 
-Define proxy rules and optional Wasm overrides:
+1. Start zone simulators:
 
-```json
-{
-  "proxies": [
-    {
-      "app_name": "My API Service",
-      "app_uri": "http://backend-service:8080",
-      "override_file": "/path/to/your/override.wasm", // Optional Wasm component
-      "rewrite": "strip", // Optional: "none" or "strip"
-      "rule": {
-        "path": "/api/",
-        "type": "contain" // "contain" or "exact"
-      }
-    },
-    {
-      "app_name": "Static Files",
-      "app_uri": "http://static-server:80/",
-      "override_file": null, // No override
-      "rewrite": "none",
-      "rule": {
-        "path": "/static/",
-        "type": "contain"
-      }
-    }
-  ]
-}
+```bash
+./examples/node-apps/run-local-zones.sh
 ```
 
+2. Start Rilot in another terminal:
 
-## Running
-### Development (Wasm recompiled)
-- RUST_LOG=debug ./target/debug/rilot config.json
+```bash
+cargo build --release
+RUST_LOG=info ./target/release/rilot config.json
+```
 
-### Production (Wasm cached)
-- RILOT_ENV=production RUST_LOG=info ./target/release/rilot config.json
+3. Send traffic:
 
-### Use default ./config.json if path omitted
-### ./target/release/rilot
+```bash
+curl -H 'x-user-region: us-east' http://127.0.0.1:8080/
+curl -H 'x-user-region: us-west' http://127.0.0.1:8080/
+```
 
+## Enable ElectricityMap
 
-- Set RILOT_ENV=production to enable Wasm caching.
-- Set RUST_LOG (e.g., debug, info) for logging level.
-- Set RILOT_HOST / RILOT_PORT to change listen address (defaults 127.0.0.1:8080).
+In your config:
 
-## Custom Overrides
-Use the examples directory as a template. Create a Rust library project, define your WIT interface, configure Cargo.toml, implement the logic in lib.rs, and build using `cargo component
+- set `carbon.provider` to `electricitymap`
+- set `carbon.electricitymap_api_key`
+- optional: set `carbon.electricitymap_api_token_header` if your token header differs from `auth-token`
+- optionally set `carbon.electricitymap_zone_map` when route zone names differ from ElectricityMap zone IDs
 
+Rilot uses async refresh + cache for provider calls and falls back to cached/default values on timeout.
+Use `carbon.cache_ttl_minutes` to control how long API responses stay in memory before refresh (default `1` minute).
 
----
+For local/offline testing, use:
+
+- `carbon.provider = "electricitymap-local"`
+- `carbon.electricitymap_local_fixture = "<path to fixture json>"`
+- local fixture updates are reflected immediately on each request
+
+`carbon.cache_ttl_minutes` (default `1` minute) still applies to non-local providers.
+
+## Docker research quickstart
+
+```bash
+cd research-kit
+docker compose up --build -d
+./scripts/run_experiment.sh
+```
+
+## Core docs
+
+- `docs/README.md` (documentation index)
+- `docs/architecture.md`
+- `docs/config-reference.md`
+- `docs/runtime-behavior.md`
+- `docs/wasm-carbon-plugin.md`
+- `docs/operations.md`
+- `docs/research-toolkit.md`
+- `docs/edge-target.md`
+
+## Key files
+
+- Runtime: `src/proxy.rs`
+- Config schema: `src/config.rs`
+- Wasm runtime: `src/wasm_engine.rs`
+- Policy core: `crates/rilot-core/src/lib.rs`
+- Edge adapter roadmap (future work): `adapters/edge-wasm/`
+- Default config: `config.json`
+- Example config: `examples/config/config.json`
+- Local simulators: `examples/node-apps/`
+- Docker experiment config: `research-kit/config.docker.json`
 
 ## License
 
-This project is licensed under the MIT License.
+MIT
 
+## How to Cite
 
-## 🙏 Acknowledgements
+If you use Rilot in research, please cite:
 
-- Built with ❤️ in Rust
-
-- Inspired by production-grade proxies like Cloudflare Workers, Vercel Edge Runtime and Fastly compute Edge
-
-- Powered by Hyper, Tokio, and Wasmtime
+```bibtex
+@software{maninderpreet_singh_rilot_2026,
+  author = {Maninderpreet Singh},
+  title = {Rilot: Carbon Cursor Edge Routing},
+  year = {2026},
+  url = {https://github.com/SudoDevStudio/rilot}
+}
+```

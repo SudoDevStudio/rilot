@@ -17,3 +17,4 @@ target/
 #.idea/
 examples/config/config.json
 config.json
+__pycache__

@@ -29,6 +29,12 @@ pub struct WasmOutput {
     pub response_headers_to_add: HashMap<String, String>,
     #[serde(default)]
     pub response_headers_to_remove: Vec<String>,
+    #[serde(default)]
+    pub energy_joules_override: Option<f64>,
+    #[serde(default)]
+    pub carbon_intensity_g_per_kwh_override: Option<f64>,
+    #[serde(default)]
+    pub energy_source: Option<String>,
 }
 
 struct Host {
