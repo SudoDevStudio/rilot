@@ -64,6 +64,14 @@ docker compose up --build -d
 ./scripts/run_experiment.sh
 ```
 
+The generated `summary.md` includes explicit trade-off deltas versus baseline:
+
+- carbon exposure saved (%)
+- CO2e saved (%)
+- latency p95 delta
+- error rate
+- sampled CPU delta
+
 ## Core docs
 
 - `docs/README.md` (documentation index)
@@ -87,6 +95,12 @@ docker compose up --build -d
 - Example config: `examples/config/config.json`
 - Local simulators: `examples/node-apps/`
 - Docker experiment config: `research-kit/config.docker.json`
+
+## Broader Applicability
+
+- Data center operators can use Rilot to evaluate region/zone dispatch policies under carbon and latency guardrails before production rollout.
+- Cloud platforms can expose per-tenant policy profiles (latency-first, carbon-first, balanced) using the same routing core.
+- Edge/API gateway teams can integrate route-level Wasm overrides for custom scoring and external signal sources without changing core proxy code.
 
 ## License
 

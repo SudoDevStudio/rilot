@@ -26,6 +26,7 @@ Generated output includes:
 - per-request latency CSV
 - per-mode Prometheus snapshots
 - summary CSV/JSON/Markdown tables for paper-ready comparison
+- baseline-relative trade-off metrics (exposure/CO2e savings, latency delta, error rate, CPU sample delta)
 
 `requests.csv` now includes explainability fields:
 

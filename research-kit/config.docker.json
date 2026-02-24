@@ -65,7 +65,7 @@
       "policy": {
         "carbon_cursor_enabled": true,
         "route_class": "flexible",
-        "priority_mode": "balanced",
+        "priority_mode": "carbon-first",
         "constraints": {
           "max_candidates": 8,
           "zone_allowlist": [],
@@ -85,9 +85,9 @@
         "forecast_min_improvement_ratio": 0.1,
         "max_defer_seconds": 0,
         "fail_safe_lowest_latency": true,
-        "hysteresis_delta": 0.04,
-        "min_switch_interval_secs": 20,
-        "plugin_enabled": true,
+        "hysteresis_delta": 0.0,
+        "min_switch_interval_secs": 0,
+        "plugin_enabled": false,
         "plugin_timeout_ms": 800
       }
     }

@@ -41,7 +41,7 @@ Measure:
 
 - Carbon exposure: `carbon_intensity_exposure_total{route,zone}`.
 - Carbon estimate: `co2e_estimated_total{route,zone}`.
-- Performance: request latency (avg, p95) + request/error counters.
+- Performance: request latency (avg, p95), error rate, and sampled CPU overhead.
 - Service quality: error rate and tail-latency budget misses.
 
 Outputs:
@@ -50,6 +50,7 @@ Outputs:
 - `research-kit/results/comparative-<timestamp>/summary.json`
 - `research-kit/results/comparative-<timestamp>/summary.md`
 - Per-scenario Prometheus dumps and request-level CSV.
+- CSV/Markdown trade-off deltas vs baseline (exposure saved, CO2e saved, latency delta, CPU delta).
 
 ## Ethical and practical implications
 
@@ -57,6 +58,7 @@ Outputs:
 - Fairness: use allowlists/tags and class policies to avoid persistent degradation.
 - Privacy: with region routing (`x-user-region`), document retention/minimization.
 - Safety: fail-safe fallback to lowest latency if carbon data is missing or provider times out.
+  - Demonstrate by running baseline modes (`carbon_cursor_enabled=false`) and timeout-prone provider settings.
 
 ## Known limitations
 

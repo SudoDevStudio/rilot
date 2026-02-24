@@ -53,6 +53,22 @@ def run(cmd, cwd=ROOT):
     subprocess.run(cmd, cwd=str(cwd), check=True, env=COMPOSE_ENV)
 
 
+def collect_rilot_cpu_percent():
+    try:
+        out = subprocess.check_output(
+            ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", "rilot"],
+            cwd=str(ROOT),
+            env=COMPOSE_ENV,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+        if out.endswith("%"):
+            out = out[:-1].strip()
+        return float(out) if out else 0.0
+    except Exception:
+        return None
+
+
 def parse_prom_sum(text: str, metric_name: str, route_filter: str):
     total = 0.0
     by_zone = {}
@@ -226,10 +242,12 @@ def main():
                 "requests": int(req_total),
                 "ok_count": req_stats["ok_count"],
                 "error_count": req_stats["error_count"],
+                "error_rate_percent": (req_stats["error_count"] / max(1, int(req_total))) * 100.0,
                 "latency_avg_ms": (sum(lats) / len(lats)) if lats else 0.0,
                 "latency_p95_ms": percentile(lats, 95),
                 "carbon_exposure_mean_g_per_kwh": mean_exposure,
                 "co2e_estimated_total_g": co2e_total,
+                "cpu_percent_sample": collect_rilot_cpu_percent(),
                 "zone_counts": req_by_zone,
             })
     finally:
@@ -243,12 +261,25 @@ def main():
     baseline = next((r for r in summaries if r["scenario"] == "baseline_no_carbon_balanced"), None)
     baseline_exposure = baseline["carbon_exposure_mean_g_per_kwh"] if baseline else 0.0
     baseline_p95 = baseline["latency_p95_ms"] if baseline else 0.0
+    baseline_co2e = baseline["co2e_estimated_total_g"] if baseline else 0.0
+    baseline_cpu = baseline["cpu_percent_sample"] if baseline else None
     for row in summaries:
         saved_abs = baseline_exposure - row["carbon_exposure_mean_g_per_kwh"]
         saved_pct = (saved_abs / baseline_exposure * 100.0) if baseline_exposure > 0 else 0.0
         row["carbon_exposure_saved_g_per_kwh_vs_baseline"] = saved_abs
         row["carbon_exposure_saved_percent_vs_baseline"] = saved_pct
         row["latency_p95_delta_ms_vs_baseline"] = row["latency_p95_ms"] - baseline_p95
+        if baseline_co2e and row.get("co2e_estimated_total_g") is not None:
+            co2e_saved = baseline_co2e - row["co2e_estimated_total_g"]
+            row["co2e_saved_g_vs_baseline"] = co2e_saved
+            row["co2e_saved_percent_vs_baseline"] = (co2e_saved / baseline_co2e) * 100.0
+        else:
+            row["co2e_saved_g_vs_baseline"] = 0.0
+            row["co2e_saved_percent_vs_baseline"] = 0.0
+        if baseline_cpu is not None and row.get("cpu_percent_sample") is not None:
+            row["cpu_delta_percent_vs_baseline"] = row["cpu_percent_sample"] - baseline_cpu
+        else:
+            row["cpu_delta_percent_vs_baseline"] = None
 
     fields = [
         "scenario",
@@ -256,13 +287,18 @@ def main():
         "requests",
         "ok_count",
         "error_count",
+        "error_rate_percent",
         "latency_avg_ms",
         "latency_p95_ms",
         "latency_p95_delta_ms_vs_baseline",
+        "cpu_percent_sample",
+        "cpu_delta_percent_vs_baseline",
         "carbon_exposure_mean_g_per_kwh",
         "carbon_exposure_saved_g_per_kwh_vs_baseline",
         "carbon_exposure_saved_percent_vs_baseline",
         "co2e_estimated_total_g",
+        "co2e_saved_g_vs_baseline",
+        "co2e_saved_percent_vs_baseline",
     ]
     with summary_csv.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -280,19 +316,19 @@ def main():
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
-        "| scenario | avg latency ms | p95 latency ms | p95 delta vs baseline ms | mean carbon exposure g/kWh | saved g/kWh vs baseline | saved % vs baseline | co2e total g |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | cpu % sample | cpu delta % | mean exposure g/kWh | exposure saved % | co2e saved % |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
-        co2e = "" if row["co2e_estimated_total_g"] is None else f"{row['co2e_estimated_total_g']:.6f}"
+        cpu = "" if row.get("cpu_percent_sample") is None else f"{row['cpu_percent_sample']:.2f}"
+        cpu_delta = "" if row.get("cpu_delta_percent_vs_baseline") is None else f"{row['cpu_delta_percent_vs_baseline']:+.2f}"
         top_zone = ""
         if row.get("zone_counts"):
             top_zone = max(row["zone_counts"].items(), key=lambda it: it[1])[0]
         lines.append(
-            f"| {row['scenario']} | {row['latency_avg_ms']:.2f} | {row['latency_p95_ms']:.2f} | "
-            f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
-            f"{row['carbon_exposure_saved_g_per_kwh_vs_baseline']:+.2f} | "
-            f"{row['carbon_exposure_saved_percent_vs_baseline']:+.2f}% | {co2e} |"
+            f"| {row['scenario']} | {row['error_rate_percent']:.2f}% | {row['latency_avg_ms']:.2f} | {row['latency_p95_ms']:.2f} | "
+            f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {cpu} | {cpu_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
+            f"{row['carbon_exposure_saved_percent_vs_baseline']:+.2f}% | {row['co2e_saved_percent_vs_baseline']:+.2f}% |"
         )
         if top_zone:
             lines.append(f"  - dominant zone: `{top_zone}`; zone split: `{row['zone_counts']}`")
