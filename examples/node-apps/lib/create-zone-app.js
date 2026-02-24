@@ -73,6 +73,7 @@ function createZoneServer(opts) {
       observed_handler_ms: elapsed,
       energy_joules_hint: energyPerRequestJ,
       timestamp_utc: now,
+      headers: req.headers,
     });
   });
 

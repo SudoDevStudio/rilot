@@ -7,7 +7,6 @@
   },
   "carbon": {
     "provider": "mock",
-    "cache_ttl_minutes": 1,
     "provider_timeout_ms": 75,
     "electricitymap_base_url": "https://api.electricitymap.org",
     "electricitymap_api_key": null,
@@ -25,7 +24,8 @@
       "us-east": 370,
       "us-west": 290
     },
-    "electricitymap_local_live_reload": false
+    "electricitymap_local_live_reload": false,
+    "cache_ttl_seconds": 10
   },
   "proxies": [
     {
@@ -88,7 +88,7 @@
         "hysteresis_delta": 0.04,
         "min_switch_interval_secs": 20,
         "plugin_enabled": true,
-        "plugin_timeout_ms": 25
+        "plugin_timeout_ms": 800
       }
     }
   ]

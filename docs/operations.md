@@ -38,7 +38,7 @@ Use local fixture mode when you want deterministic behavior without calling the 
 
 1. Set `carbon.provider` to `electricitymap-local`.
 2. Set `carbon.electricitymap_local_fixture` to a JSON file path.
-3. Keep `carbon.cache_ttl_minutes` at your desired refresh window.
+3. Set `carbon.cache_ttl_seconds` to your desired refresh window (e.g. `10`).
 
 Fixture file example is included at:
 
@@ -105,5 +105,5 @@ Endpoints:
 
 - Keep `max_candidates` small.
 - Reduce `decision_log_sample_rate` for high traffic.
-- Use production mode for Wasm cache.
+- Use production mode for Wasm cache and startup preloading of configured override components.
 - Set realistic `base_rtt_ms` per zone.

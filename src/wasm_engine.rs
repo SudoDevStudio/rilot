@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, env, sync::RwLock};
+use std::{collections::{HashMap, HashSet}, env, sync::RwLock};
 use wasmtime::{Engine, Store, Config as WasmtimeConfig};
 use wasmtime::component::{Component, Linker, ResourceTable, TypedFunc};
 use wasmtime_wasi::{
@@ -54,42 +54,66 @@ static ENGINE: Lazy<Engine> = Lazy::new(|| {
 static COMPONENT_CACHE: Lazy<RwLock<HashMap<String, Component>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-pub async fn run_modify_request(component_path: &str, input_json: &str) -> Result<WasmOutput> {
-    let component = {
-        let is_production = env::var("RILOT_ENV")
-            .map(|val| val.eq_ignore_ascii_case("production"))
-            .unwrap_or(false);
+static PROD_MODE: Lazy<bool> = Lazy::new(|| {
+    env::var("RILOT_ENV")
+        .map(|val| val.eq_ignore_ascii_case("production"))
+        .unwrap_or(false)
+});
 
-        if is_production {
-            log::debug!("📦 [Prod Mode] Checking cache for component: {}", component_path);
-            let read_cache = COMPONENT_CACHE.read().expect("Cache lock poisoned");
-            if let Some(comp) = read_cache.get(component_path) {
-                log::info!("📦 [Prod Mode] Found component in cache: {}", component_path);
-                comp.clone()
-            } else {
-                drop(read_cache);
-                log::info!("📦 [Prod Mode] Compiling and caching component: {}", component_path);
-                let comp = Component::from_file(&*ENGINE, component_path)
-                    .with_context(|| format!("Failed to load Wasm component file: {}", component_path))?;
-                let mut write_cache = COMPONENT_CACHE.write().expect("Cache lock poisoned");
-                write_cache.insert(component_path.to_string(), comp.clone());
-                log::info!("✅ [Prod Mode] Component cached: {}", component_path);
-                comp
-            }
-        } else {
-            log::debug!("📦 [Dev Mode] Compiling component (no cache): {}", component_path);
-            Component::from_file(&*ENGINE, component_path)
-                .with_context(|| format!("Failed to load Wasm component file: {}", component_path))?
+pub fn is_production_mode() -> bool {
+    *PROD_MODE
+}
+
+fn load_component(component_path: &str, use_cache: bool) -> Result<Component> {
+    if use_cache {
+        let read_cache = COMPONENT_CACHE.read().expect("Cache lock poisoned");
+        if let Some(comp) = read_cache.get(component_path) {
+            return Ok(comp.clone());
         }
-    };
-    log::debug!("✅ Component loaded/retrieved.");
+        drop(read_cache);
 
-    log::debug!("🔧 Creating I/O pipes...");
+        let comp = Component::from_file(&*ENGINE, component_path)
+            .with_context(|| format!("Failed to load Wasm component file: {}", component_path))?;
+        let mut write_cache = COMPONENT_CACHE.write().expect("Cache lock poisoned");
+        write_cache.insert(component_path.to_string(), comp.clone());
+        Ok(comp)
+    } else {
+        Component::from_file(&*ENGINE, component_path)
+            .with_context(|| format!("Failed to load Wasm component file: {}", component_path))
+    }
+}
+
+pub fn preload_components(paths: &[String]) -> Result<usize> {
+    if !is_production_mode() {
+        return Ok(0);
+    }
+
+    let mut unique = HashSet::new();
+    for path in paths {
+        if path.trim().is_empty() || !unique.insert(path.clone()) {
+            continue;
+        }
+        let _ = load_component(path, true)?;
+    }
+    Ok(unique.len())
+}
+
+pub async fn run_modify_request(component_path: &str, input_json: &str) -> Result<WasmOutput> {
+    let component = if is_production_mode() {
+        log::debug!("[Prod Mode] Loading component from in-memory cache: {}", component_path);
+        load_component(component_path, true)?
+    } else {
+        log::debug!("[Dev Mode] Compiling component (no cache): {}", component_path);
+        load_component(component_path, false)?
+    };
+    log::debug!("Component loaded/retrieved.");
+
+    log::debug!("Creating I/O pipes...");
     let input_json_owned = input_json.to_string();
     let stdin_pipe = MemoryInputPipe::new(input_json_owned);
     let stdout_pipe = MemoryOutputPipe::new(4096);
 
-    log::debug!("🔧 Building WASI context with pipes...");
+    log::debug!("Building WASI context with pipes...");
     let mut builder = WasiCtxBuilder::new();
     builder
         .inherit_args()
@@ -105,26 +129,26 @@ pub async fn run_modify_request(component_path: &str, input_json: &str) -> Resul
         http: WasiHttpCtx::new(),
     };
     let mut store = Store::new(&*ENGINE, host);
-    log::debug!("🔧 Host and Store created.");
+    log::debug!("Host and Store created.");
 
     let mut linker = Linker::new(&*ENGINE);
 
     wasi_add(&mut linker)?;
     add_only_http_to_linker_async(&mut linker)?;
-    log::debug!("🔗 WASI interfaces linked.");
+    log::debug!("WASI interfaces linked.");
 
-    log::debug!("🚀 Instantiating component...");
+    log::debug!("Instantiating component...");
     let instance = linker.instantiate_async(&mut store, &component).await?;
-    log::debug!("✅ Component instantiated.");
+    log::debug!("Component instantiated.");
 
     let actual_export_name = "modify-request";
 
-    log::debug!("🔍 Finding function export named '{}'...", actual_export_name);
+    log::debug!("Finding function export named '{}'...", actual_export_name);
 
     let modify_request_func: TypedFunc<(), ()> = instance
         .get_typed_func(&mut store, actual_export_name)
         .with_context(|| format!("Failed to find expected function export '{}'", actual_export_name))?;
-    log::debug!("✅ Found `{}` function export.", actual_export_name);
+    log::debug!("Found `{}` function export.", actual_export_name);
 
 
     log::debug!("Calling `{}` in Wasm (I/O via stdio pipes)...", actual_export_name);
@@ -133,24 +157,24 @@ pub async fn run_modify_request(component_path: &str, input_json: &str) -> Resul
         .await
         .with_context(|| format!("Failed during Wasm function call '{}'", actual_export_name))?
         ;
-    log::debug!("✅ `{}` returned.", actual_export_name);
+    log::debug!("`{}` returned.", actual_export_name);
 
     drop(store);
     let output_bytes = stdout_pipe.contents();
     let output_json_string = String::from_utf8(output_bytes.to_vec())
         .context("Failed to decode Wasm stdout as UTF-8")?;
 
-    log::debug!("📄 Read output JSON string from stdout pipe ({} bytes)", output_json_string.len());
+    log::debug!("Read output JSON string from stdout pipe ({} bytes)", output_json_string.len());
     log::trace!("Raw stdout: {}", output_json_string);
 
 
     let output: WasmOutput = if output_json_string.trim().is_empty() {
-        log::warn!("⚠️ Wasm component wrote empty string to stdout, returning default output.");
+        log::warn!("Wasm component wrote empty string to stdout, returning default output.");
         WasmOutput::default()
     } else {
         serde_json::from_str(&output_json_string).with_context(|| format!("Failed to parse JSON output from Wasm stdout: '{}'", output_json_string))?
     };
-    log::debug!("✨ Deserialized WasmOutput: {:?}", output);
+    log::debug!("Deserialized WasmOutput: {:?}", output);
 
     Ok(output)
 }

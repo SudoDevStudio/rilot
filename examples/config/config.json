@@ -7,7 +7,6 @@
   },
   "carbon": {
     "provider": "electricitymap-local",
-    "cache_ttl_minutes": 1,
     "provider_timeout_ms": 75,
     "electricitymap_base_url": "https://api.electricitymap.org",
     "electricitymap_api_key": null,
@@ -31,7 +30,8 @@
       "bg-west": 170,
       "checkout-local": 395
     },
-    "electricitymap_local_live_reload": false
+    "electricitymap_local_live_reload": false,
+    "cache_ttl_seconds": 10
   },
   "proxies": [
     {
@@ -84,7 +84,7 @@
         "hysteresis_delta": 0.01,
         "min_switch_interval_secs": 30,
         "plugin_enabled": false,
-        "plugin_timeout_ms": 25
+        "plugin_timeout_ms": 800
       }
     },
     {
@@ -146,9 +146,10 @@
         "fail_safe_lowest_latency": true,
         "hysteresis_delta": 0.04,
         "min_switch_interval_secs": 20,
-        "plugin_enabled": false,
-        "plugin_timeout_ms": 25
-      }
+        "plugin_enabled": true,
+        "plugin_timeout_ms": 800
+      },
+      "override_file": "./examples/target/wasm32-wasip1/release/examples.wasm"
     },
     {
       "app_name": "content-service",
@@ -212,7 +213,7 @@
         "hysteresis_delta": 0.03,
         "min_switch_interval_secs": 15,
         "plugin_enabled": false,
-        "plugin_timeout_ms": 25
+        "plugin_timeout_ms": 800
       }
     },
     {
@@ -277,7 +278,7 @@
         "hysteresis_delta": 0.05,
         "min_switch_interval_secs": 20,
         "plugin_enabled": false,
-        "plugin_timeout_ms": 25
+        "plugin_timeout_ms": 800
       }
     },
     {
@@ -341,7 +342,7 @@
         "hysteresis_delta": 0.04,
         "min_switch_interval_secs": 15,
         "plugin_enabled": true,
-        "plugin_timeout_ms": 25
+        "plugin_timeout_ms": 800
       }
     },
     {
@@ -404,8 +405,9 @@
         "hysteresis_delta": 0.04,
         "min_switch_interval_secs": 20,
         "plugin_enabled": false,
-        "plugin_timeout_ms": 25
-      }
+        "plugin_timeout_ms": 800
+      },
+      "override_file": "./examples/target/wasm32-wasip1/release/examples.wasm"
     }
   ]
 }

@@ -45,7 +45,7 @@ In your config:
 - optionally set `carbon.electricitymap_zone_map` when route zone names differ from ElectricityMap zone IDs
 
 Rilot uses async refresh + cache for provider calls and falls back to cached/default values on timeout.
-Use `carbon.cache_ttl_minutes` to control how long API responses stay in memory before refresh (default `1` minute).
+Use `carbon.cache_ttl_seconds` for cache TTL (in seconds, default `60`).
 
 For local/offline testing, use:
 
@@ -53,7 +53,7 @@ For local/offline testing, use:
 - `carbon.electricitymap_local_fixture = "<path to fixture json>"`
 - local fixture updates are reflected immediately on each request
 
-`carbon.cache_ttl_minutes` (default `1` minute) still applies to non-local providers.
+`carbon.cache_ttl_seconds` is the only cache TTL setting.
 
 ## Docker research quickstart
 

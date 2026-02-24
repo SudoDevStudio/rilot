@@ -18,6 +18,8 @@ use crate::{config, wasm_engine};
 
 const CROSS_REGION_RTT_PENALTY_MS: f64 = 40.0;
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
+static CACHE_TTL_LEFT_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-cc-ttl-left"));
 
 #[derive(Serialize)]
 struct WasmInput {
@@ -32,6 +34,7 @@ struct ZoneCandidate {
     name: String,
     app_uri: String,
     region: String,
+    order: usize,
     base_rtt_ms: f64,
     cost_weight: f64,
     max_in_flight: Option<usize>,
@@ -145,10 +148,10 @@ pub async fn start_proxy(config: Arc<config::Config>) {
         .unwrap_or(8080);
     let addr = SocketAddr::new(host.parse().expect("Invalid host"), port);
 
-    println!("🚀 Rilot proxy starting at http://{}", addr);
+    println!("Rilot proxy starting at http://{}", addr);
     let server = Server::bind(&addr).serve(make_svc);
     if let Err(e) = server.await {
-        eprintln!("❌ Server error: {}", e);
+        eprintln!("Server error: {}", e);
     }
 }
 
@@ -244,7 +247,7 @@ async fn handle_request(
     let body_bytes = match hyper::body::to_bytes(req.body_mut()).await {
         Ok(bytes) => bytes,
         Err(e) => {
-            eprintln!("⚠️ Failed to read request body: {}", e);
+            eprintln!("Failed to read request body: {}", e);
             return simple_response(StatusCode::INTERNAL_SERVER_ERROR, "Error reading request body.");
         }
     };
@@ -279,6 +282,13 @@ async fn handle_request(
         .as_ref()
         .map(|d| d.zone.name.clone())
         .unwrap_or_else(|| "default".to_string());
+    let carbon_cache_ttl_left_secs = if config.carbon.provider == "electricitymap-local"
+        && config.carbon.electricitymap_local_live_reload
+    {
+        Some(0)
+    } else {
+        cache_ttl_left_secs(&state, &selected_zone_name)
+    };
 
     if let Some(d) = &decision {
         if d.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
@@ -300,7 +310,7 @@ async fn handle_request(
             let input_json = match serde_json::to_string(&wasm_input) {
                 Ok(json) => json,
                 Err(e) => {
-                    eprintln!("⚠️ Failed to serialize input for Wasm: {}", e);
+                    eprintln!("Failed to serialize input for Wasm: {}", e);
                     return simple_response(StatusCode::INTERNAL_SERVER_ERROR, "Error preparing Wasm input.");
                 }
             };
@@ -345,10 +355,15 @@ async fn handle_request(
                     }
                 }
                 Ok(Err(e)) => {
-                    eprintln!("❌ Wasm execution failed: {}", e);
+                    eprintln!("Wasm execution failed: {}", e);
                 }
                 Err(_) => {
-                    eprintln!("⚠️ Wasm plugin timed out for route {}", proxy_config.rule.path);
+                    eprintln!(
+                        "Wasm plugin timed out for route {} after {}ms (component: {})",
+                        proxy_config.rule.path,
+                        proxy_config.policy.plugin_timeout_ms,
+                        wasm_file
+                    );
                 }
             }
         }
@@ -366,7 +381,7 @@ async fn handle_request(
     let final_uri = match Uri::try_from(&final_target_uri_str) {
         Ok(uri) => uri,
         Err(e) => {
-            eprintln!("⚠️ Failed to construct final target URI '{}': {}", final_target_uri_str, e);
+            eprintln!("Failed to construct final target URI '{}': {}", final_target_uri_str, e);
             return simple_response(StatusCode::INTERNAL_SERVER_ERROR, "Error constructing target URL.");
         }
     };
@@ -380,13 +395,18 @@ async fn handle_request(
     let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     let (response, status, is_error) = match forward_result {
-        Ok(res) => {
+        Ok(mut res) => {
+            if let Some(ttl_left) = carbon_cache_ttl_left_secs {
+                if let Ok(value) = HeaderValue::from_str(&ttl_left.to_string()) {
+                    res.headers_mut().insert(CACHE_TTL_LEFT_HEADER.clone(), value);
+                }
+            }
             let status = res.status();
             let is_error = status.is_server_error();
             (Ok(res), status, is_error)
         }
         Err(e) => {
-            eprintln!("❌ Error forwarding request: {}", e);
+            eprintln!("Error forwarding request: {}", e);
             (
                 simple_response(StatusCode::BAD_GATEWAY, "Error connecting to upstream service."),
                 StatusCode::BAD_GATEWAY,
@@ -432,6 +452,19 @@ async fn handle_request(
     );
 
     response
+}
+
+fn cache_ttl_left_secs(state: &AppState, zone: &str) -> Option<u64> {
+    let s = state.inner.read().expect("state lock poisoned");
+    let entry = s.carbon_cache.get(zone)?;
+    let now = Instant::now();
+    Some(
+        entry
+            .expires_at
+            .checked_duration_since(now)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    )
 }
 
 fn collect_headers(req: &Request<Body>) -> HashMap<String, String> {
@@ -526,6 +559,36 @@ fn choose_zone(
         return lowest_latency_with_hysteresis(proxy, scores, state);
     }
 
+    // Rare tie case: if all eligible candidates have identical carbon signal,
+    // pick deterministically by config order (first zone wins).
+    let mut carbon_tie_candidates: Vec<ZoneScore> = scores
+        .iter()
+        .cloned()
+        .filter(|s| {
+            s.filtered_out_reason.is_none()
+                || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
+        })
+        .collect();
+    let carbon_values: Vec<f64> = carbon_tie_candidates
+        .iter()
+        .filter_map(|s| s.carbon_g_per_kwh)
+        .collect();
+    if !carbon_values.is_empty() {
+        let first = carbon_values[0];
+        let is_full_carbon_tie = carbon_values
+            .iter()
+            .all(|v| (v - first).abs() <= f64::EPSILON);
+        if is_full_carbon_tie {
+            carbon_tie_candidates.sort_by_key(|s| s.zone.order);
+            if let Some(mut chosen) = carbon_tie_candidates.first().cloned() {
+                if chosen.filtered_out_reason.is_none() {
+                    chosen.filtered_out_reason = Some("config-order-carbon-tie".to_string());
+                }
+                return Some(apply_hysteresis(proxy, chosen, state));
+            }
+        }
+    }
+
     let mode_weights = rilot_core::effective_weights(
         proxy.policy.priority_mode.as_str(),
         rilot_core::PolicyWeights {
@@ -580,6 +643,7 @@ fn lowest_latency_with_hysteresis(
         a.latency_ms
             .partial_cmp(&b.latency_ms)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.zone.order.cmp(&b.zone.order))
     });
     let mut best = candidates.remove(0);
     best.score = 9999.0;
@@ -707,10 +771,12 @@ fn resolve_zones(proxy: &config::ProxyConfig) -> Vec<ZoneCandidate> {
         return proxy
             .zones
             .iter()
-            .map(|z| ZoneCandidate {
+            .enumerate()
+            .map(|(idx, z)| ZoneCandidate {
                 name: z.name.clone(),
                 app_uri: z.app_uri.clone(),
                 region: z.region.clone().unwrap_or_else(|| z.name.clone()),
+                order: idx,
                 base_rtt_ms: z.base_rtt_ms.unwrap_or(35.0),
                 cost_weight: z.cost_weight.unwrap_or(0.0),
                 max_in_flight: z.max_in_flight,
@@ -722,6 +788,7 @@ fn resolve_zones(proxy: &config::ProxyConfig) -> Vec<ZoneCandidate> {
         name: proxy.app_name.clone(),
         app_uri: proxy.app_uri.clone(),
         region: proxy.app_name.clone(),
+        order: 0,
         base_rtt_ms: 20.0,
         cost_weight: 0.0,
         max_in_flight: None,
@@ -738,11 +805,39 @@ fn estimate_latency_ms(user_region: &str, zone: &ZoneCandidate) -> f64 {
 }
 
 fn get_signal_nonblocking(zone: &str, cfg: &config::CarbonProviderConfig, state: &AppState) -> CarbonSignal {
-    // Local fixture mode should reflect file edits immediately for local experiments.
     if cfg.provider == "electricitymap-local" {
-        // Backward-compatible no-op: local fixture is always live now.
-        let _legacy_live_reload_flag = cfg.electricitymap_local_live_reload;
+        if cfg.electricitymap_local_live_reload {
+            let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
+            return CarbonSignal {
+                current,
+                forecast_next,
+            };
+        }
+
+        let now = Instant::now();
+        {
+            let s = state.inner.read().expect("state lock poisoned");
+            if let Some(entry) = s.carbon_cache.get(zone) {
+                if now <= entry.expires_at {
+                    return CarbonSignal {
+                        current: entry.current,
+                        forecast_next: entry.forecast_next,
+                    };
+                }
+            }
+        }
+
         let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
+        let ttl_secs = cfg.cache_ttl_seconds.max(1);
+        let mut s = state.inner.write().expect("state lock poisoned");
+        s.carbon_cache.insert(
+            zone.to_string(),
+            CachedCarbon {
+                current,
+                forecast_next,
+                expires_at: Instant::now() + Duration::from_secs(ttl_secs),
+            },
+        );
         return CarbonSignal {
             current,
             forecast_next,
@@ -796,12 +891,13 @@ fn trigger_refresh(zone: String, cfg: config::CarbonProviderConfig, state: AppSt
         s.refresh_in_flight.remove(&zone);
         match fetch {
             Ok((current, forecast_next)) => {
+                let ttl_secs = cfg.cache_ttl_seconds.max(1);
                 s.carbon_cache.insert(
                     zone,
                     CachedCarbon {
                         current,
                         forecast_next,
-                        expires_at: Instant::now() + Duration::from_secs(cfg.cache_ttl_minutes * 60),
+                        expires_at: Instant::now() + Duration::from_secs(ttl_secs),
                     },
                 );
             }

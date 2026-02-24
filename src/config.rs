@@ -88,8 +88,8 @@ pub struct RoutePolicy {
 pub struct CarbonProviderConfig {
     #[serde(default = "default_carbon_provider")]
     pub provider: String,
-    #[serde(default = "default_cache_ttl_minutes")]
-    pub cache_ttl_minutes: u64,
+    #[serde(default = "default_cache_ttl_seconds")]
+    pub cache_ttl_seconds: u64,
     #[serde(default = "default_default_carbon_intensity")]
     pub default_carbon_intensity: f64,
     #[serde(default = "default_carbon_safe_threshold_g_per_kwh")]
@@ -217,7 +217,7 @@ impl Default for CarbonProviderConfig {
     fn default() -> Self {
         Self {
             provider: default_carbon_provider(),
-            cache_ttl_minutes: default_cache_ttl_minutes(),
+            cache_ttl_seconds: default_cache_ttl_seconds(),
             default_carbon_intensity: default_default_carbon_intensity(),
             carbon_safe_threshold_g_per_kwh: default_carbon_safe_threshold_g_per_kwh(),
             zone_current: HashMap::new(),
@@ -297,8 +297,8 @@ fn default_carbon_provider() -> String {
     "mock".to_string()
 }
 
-fn default_cache_ttl_minutes() -> u64 {
-    1
+fn default_cache_ttl_seconds() -> u64 {
+    60
 }
 
 fn default_default_carbon_intensity() -> f64 {
@@ -314,7 +314,7 @@ fn default_metrics_path() -> String {
 }
 
 fn default_plugin_timeout_ms() -> u64 {
-    25
+    800
 }
 
 fn default_provider_timeout_ms() -> u64 {

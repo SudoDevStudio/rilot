@@ -46,6 +46,7 @@ Priority modes:
 - `latency-first`
 - `carbon-first`
 - `balanced` (uses explicit weights)
+- If eligible zones have equal carbon values, Rilot uses zone order from config (`zones[]`) as deterministic tie-breaker.
 
 ## Time shifting
 
@@ -75,3 +76,5 @@ Plugin cannot run indefinitely (`plugin_timeout_ms`).
 - Prometheus endpoint (`/metrics`)
 - Structured decision logs (sampled + always on errors)
 - Periodic rollup logs per route
+- Response header: `x-rilot-cc-ttl-left` for selected-zone cache TTL remaining.
+- In `electricitymap-local` mode this header shows local cache TTL left; it is `0` only when `electricitymap_local_live_reload=true`.
