@@ -569,26 +569,24 @@ fn choose_zone(
         let mut filtered_out_reason =
             apply_constraints(&proxy.policy.constraints, &zone, latency_ms, error_rate, best_latency, state);
 
-        let chosen_carbon = if classified.carbon_cursor_enabled {
-            if classified.forecasting_enabled
-                && classified.time_shift_enabled
-                && classified.route_class == "background"
-                && proxy.policy.forecast_window_minutes > 0
-            {
-                if let (Some(now), Some(next)) = (signal.current, signal.forecast_next) {
-                    let improvement = if now > 0.0 { (now - next) / now } else { 0.0 };
-                    if improvement >= proxy.policy.forecast_min_improvement_ratio {
-                        filtered_out_reason = Some("deferred-for-greener-window".to_string());
-                    }
-                    Some(next)
-                } else {
-                    signal.current
+        let chosen_carbon = if classified.carbon_cursor_enabled
+            && classified.forecasting_enabled
+            && classified.time_shift_enabled
+            && classified.route_class == "background"
+            && proxy.policy.forecast_window_minutes > 0
+        {
+            if let (Some(now), Some(next)) = (signal.current, signal.forecast_next) {
+                let improvement = if now > 0.0 { (now - next) / now } else { 0.0 };
+                if improvement >= proxy.policy.forecast_min_improvement_ratio {
+                    filtered_out_reason = Some("deferred-for-greener-window".to_string());
                 }
+                Some(next)
             } else {
                 signal.current
             }
         } else {
-            None
+            // Keep carbon visibility for observability even when carbon scoring is disabled.
+            signal.current
         };
 
         if let Some(c) = chosen_carbon {

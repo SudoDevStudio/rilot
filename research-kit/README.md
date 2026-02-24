@@ -41,6 +41,13 @@ Optional region input mode:
 USER_REGION_INPUT_MODE=mock-random ./scripts/run_experiment.sh
 ```
 
+## Interpreting results
+
+- Carbon-aware modes can reduce carbon-intensity exposure while keeping latency stable; in many runs the gain is modest (for example, ~1-2%) when regional carbon values are close.
+- `latency_first` typically minimizes response time at the cost of higher carbon exposure, which is why multi-objective modes (`balanced`, `carbon_first`) are included.
+- If CPU columns are `0.0`, host CPU sampling was not captured for that run; avoid making compute-overhead claims from that dataset.
+- To increase signal separation, run longer workloads and/or use traces with wider regional carbon spread (high-carbon vs low-carbon regions).
+
 ## Related docs
 
 - `docs/research-toolkit.md`

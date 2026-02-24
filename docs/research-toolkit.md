@@ -52,6 +52,13 @@ Outputs:
 - Per-scenario Prometheus dumps and request-level CSV.
 - CSV/Markdown trade-off deltas vs baseline (exposure saved, CO2e saved, latency delta, CPU delta).
 
+## Reading the comparative outputs
+
+- Carbon-aware routing can yield measurable reductions in carbon-intensity exposure without materially changing p95 latency; small reductions are expected when candidate regions have similar carbon values.
+- `latency_first` is a useful control: it prioritizes responsiveness and often increases carbon exposure relative to `balanced`/`carbon_first`.
+- Treat `cpu_percent_sample=0.0` as "not captured", not "no overhead". Re-run with host-level CPU capture enabled before reporting compute-cost conclusions.
+- For stronger effect sizes in papers, use longer runs and carbon traces with larger regional variance.
+
 ## Ethical and practical implications
 
 - User impact: bound latency increases with `max_added_latency_ms`.
