@@ -1,6 +1,6 @@
-# Rilot: Carbon Cursor Edge Routing
+# Rilot: Carbon Cursor Edge Routing Research Tool
 
-Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
+Rilot is an open-source Rust proxy for per-request carbon-aware routing at the HTTP edge.
 
 ## Highlights
 
@@ -12,6 +12,7 @@ Rilot is a Rust reverse proxy for per-request carbon-aware edge routing.
 - Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and `electricitymap-local`.
 - Prometheus metrics, decision logs, and periodic rollups.
 - Shared policy crate: `crates/rilot-core` for future adapter targets.
+- Reproducible comparative evaluation kit in `research-kit/`.
 
 ## Local quickstart (with simulators)
 
@@ -51,7 +52,7 @@ For local/offline testing, use:
 
 - `carbon.provider = "electricitymap-local"`
 - `carbon.electricitymap_local_fixture = "<path to fixture json>"`
-- local fixture updates are reflected immediately on each request
+- set `carbon.electricitymap_local_live_reload=true` for per-request fixture reads (otherwise cached)
 
 `carbon.cache_ttl_seconds` is the only cache TTL setting.
 
@@ -72,6 +73,7 @@ docker compose up --build -d
 - `docs/wasm-carbon-plugin.md`
 - `docs/operations.md`
 - `docs/research-toolkit.md`
+- `docs/model-calibration.md`
 - `docs/edge-target.md`
 
 ## Key files

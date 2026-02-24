@@ -76,5 +76,9 @@ Plugin cannot run indefinitely (`plugin_timeout_ms`).
 - Prometheus endpoint (`/metrics`)
 - Structured decision logs (sampled + always on errors)
 - Periodic rollup logs per route
-- Response header: `x-rilot-cc-ttl-left` for selected-zone cache TTL remaining.
-- In `electricitymap-local` mode this header shows local cache TTL left; it is `0` only when `electricitymap_local_live_reload=true`.
+- Optional research headers are emitted only when `RILOT_EXPOSE_RESEARCH_HEADERS=true`:
+- `x-rilot-cc-ttl-left` selected-zone cache TTL remaining.
+- `x-rilot-selected-zone` selected zone name.
+- `x-rilot-selected-carbon-intensity` selected-zone carbon intensity signal.
+- `x-rilot-carbon-saved-vs-worst` selected carbon savings vs highest-carbon eligible zone.
+- `x-rilot-decision-reason` short reason such as `score-win`, `fallback-lowest-latency`, or guardrail/stability reason.

@@ -20,6 +20,19 @@ const CROSS_REGION_RTT_PENALTY_MS: f64 = 40.0;
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 static CACHE_TTL_LEFT_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-cc-ttl-left"));
+static SELECTED_ZONE_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-selected-zone"));
+static SELECTED_CARBON_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-selected-carbon-intensity"));
+static DECISION_REASON_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-decision-reason"));
+static CARBON_SAVED_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-carbon-saved-vs-worst"));
+static EXPOSE_RESEARCH_HEADERS: Lazy<bool> = Lazy::new(|| {
+    std::env::var("RILOT_EXPOSE_RESEARCH_HEADERS")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
+});
 
 #[derive(Serialize)]
 struct WasmInput {
@@ -59,6 +72,7 @@ struct RouteZoneMetrics {
     requests_total: u64,
     carbon_safe_calls_total: u64,
     errors_total: u64,
+    carbon_intensity_exposure_total_g_per_kwh: f64,
     co2e_estimated_total_g: f64,
     energy_estimated_total_j: f64,
     latency_sum_ms: f64,
@@ -113,6 +127,7 @@ struct ZoneScore {
     zone: ZoneCandidate,
     score: f64,
     carbon_g_per_kwh: Option<f64>,
+    carbon_saved_vs_worst_g_per_kwh: f64,
     latency_ms: f64,
     error_rate: f64,
     cost: f64,
@@ -282,13 +297,35 @@ async fn handle_request(
         .as_ref()
         .map(|d| d.zone.name.clone())
         .unwrap_or_else(|| "default".to_string());
-    let carbon_cache_ttl_left_secs = if config.carbon.provider == "electricitymap-local"
-        && config.carbon.electricitymap_local_live_reload
-    {
-        Some(0)
-    } else {
-        cache_ttl_left_secs(&state, &selected_zone_name)
-    };
+    let expose_research_headers = *EXPOSE_RESEARCH_HEADERS;
+    let (carbon_cache_ttl_left_secs, selected_carbon, selected_carbon_saved, selected_reason) =
+        if expose_research_headers {
+            let ttl_left = if config.carbon.provider == "electricitymap-local"
+                && config.carbon.electricitymap_local_live_reload
+            {
+                Some(0)
+            } else {
+                cache_ttl_left_secs(&state, &selected_zone_name)
+            };
+            let carbon = decision.as_ref().and_then(|d| d.carbon_g_per_kwh);
+            let carbon_saved = decision
+                .as_ref()
+                .map(|d| d.carbon_saved_vs_worst_g_per_kwh)
+                .unwrap_or(0.0);
+            let reason = decision
+                .as_ref()
+                .and_then(|d| d.filtered_out_reason.clone())
+                .unwrap_or_else(|| {
+                    if classified.carbon_cursor_enabled {
+                        "score-win".to_string()
+                    } else {
+                        "fallback-lowest-latency".to_string()
+                    }
+                });
+            (ttl_left, carbon, carbon_saved, reason)
+        } else {
+            (None, None, 0.0, String::new())
+        };
 
     if let Some(d) = &decision {
         if d.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
@@ -396,9 +433,27 @@ async fn handle_request(
 
     let (response, status, is_error) = match forward_result {
         Ok(mut res) => {
-            if let Some(ttl_left) = carbon_cache_ttl_left_secs {
-                if let Ok(value) = HeaderValue::from_str(&ttl_left.to_string()) {
-                    res.headers_mut().insert(CACHE_TTL_LEFT_HEADER.clone(), value);
+            if expose_research_headers {
+                if let Some(ttl_left) = carbon_cache_ttl_left_secs {
+                    if let Ok(value) = HeaderValue::from_str(&ttl_left.to_string()) {
+                        res.headers_mut().insert(CACHE_TTL_LEFT_HEADER.clone(), value);
+                    }
+                }
+                if let Ok(value) = HeaderValue::from_str(&selected_zone_name) {
+                    res.headers_mut().insert(SELECTED_ZONE_HEADER.clone(), value);
+                }
+                if let Some(v) = selected_carbon {
+                    if let Ok(value) = HeaderValue::from_str(&format!("{:.3}", v)) {
+                        res.headers_mut().insert(SELECTED_CARBON_HEADER.clone(), value);
+                    }
+                }
+                if let Ok(value) = HeaderValue::from_str(&selected_reason) {
+                    res.headers_mut().insert(DECISION_REASON_HEADER.clone(), value);
+                }
+                if let Ok(value) =
+                    HeaderValue::from_str(&format!("{:.3}", selected_carbon_saved.max(0.0)))
+                {
+                    res.headers_mut().insert(CARBON_SAVED_HEADER.clone(), value);
                 }
             }
             let status = res.status();
@@ -548,6 +603,7 @@ fn choose_zone(
             zone,
             score: 0.0,
             carbon_g_per_kwh: chosen_carbon,
+            carbon_saved_vs_worst_g_per_kwh: 0.0,
             latency_ms,
             error_rate,
             cost,
@@ -600,6 +656,10 @@ fn choose_zone(
     );
     for score in &mut scores {
         let n_carbon = score.carbon_g_per_kwh.unwrap_or(max_carbon) / max_carbon;
+        score.carbon_saved_vs_worst_g_per_kwh = score
+            .carbon_g_per_kwh
+            .map(|c| (max_carbon - c).max(0.0))
+            .unwrap_or(0.0);
         let n_latency = score.latency_ms / max_latency;
         let n_errors = score.error_rate / max_error.max(0.001);
         let n_cost = if max_cost > 0.0 { score.cost / max_cost } else { 0.0 };
@@ -747,6 +807,7 @@ fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &A
                     zone: existing,
                     score: last.score,
                     carbon_g_per_kwh: candidate.carbon_g_per_kwh,
+                    carbon_saved_vs_worst_g_per_kwh: candidate.carbon_saved_vs_worst_g_per_kwh,
                     latency_ms: candidate.latency_ms,
                     error_rate: candidate.error_rate,
                     cost: candidate.cost,
@@ -1157,6 +1218,7 @@ fn record_metrics(
     if is_error {
         m.errors_total += 1;
     }
+    m.carbon_intensity_exposure_total_g_per_kwh += carbon_g_per_kwh;
     m.co2e_estimated_total_g += co2e_g;
     m.energy_estimated_total_j += energy_j;
     m.latency_sum_ms += latency_ms;
@@ -1184,6 +1246,7 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
     out.push_str("# TYPE errors_total counter\n");
     out.push_str("# TYPE latency_ms_bucket counter\n");
     out.push_str("# TYPE carbon_intensity_g_per_kwh gauge\n");
+    out.push_str("# TYPE carbon_intensity_exposure_total counter\n");
     out.push_str("# TYPE co2e_estimated_total counter\n");
     out.push_str("# TYPE energy_joules_estimated_total counter\n");
 
@@ -1216,6 +1279,12 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
             escape_label(route),
             escape_label(zone),
             m.errors_total
+        ));
+        out.push_str(&format!(
+            "carbon_intensity_exposure_total{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
+            escape_label(route),
+            escape_label(zone),
+            m.carbon_intensity_exposure_total_g_per_kwh
         ));
         out.push_str(&format!(
             "co2e_estimated_total{{route=\"{}\",zone=\"{}\"}} {:.8}\n",

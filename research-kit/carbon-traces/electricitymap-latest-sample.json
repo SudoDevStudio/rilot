@@ -1,12 +1,17 @@
 {
+  "testNotes": {
+    "scenario": "east-greener-than-west",
+    "expectedChoiceForUSUsers": "us-east",
+    "why": "us-east carbonIntensity is lower than us-west, so carbon-aware modes should prefer us-east when latency/error constraints allow."
+  },
   "zones": {
     "us-east": {
-      "carbonIntensity": 292,
-      "carbonIntensityForecast": 271
+      "carbonIntensity": 180,
+      "carbonIntensityForecast": 165
     },
     "us-west": {
-      "carbonIntensity": 438,
-      "carbonIntensityForecast": 365
+      "carbonIntensity": 520,
+      "carbonIntensityForecast": 480
     },
     "bg-east": {
       "carbonIntensity": 214,

@@ -30,7 +30,7 @@
   "proxies": [
     {
       "app_name": "edge-router-demo",
-      "app_uri": "http://us-east:5678",
+      "app_uri": "http://us-east:5601",
       "rewrite": "none",
       "rule": {
         "path": "/",
@@ -40,7 +40,7 @@
         {
           "name": "us-east",
           "region": "us-east",
-          "app_uri": "http://us-east:5678",
+          "app_uri": "http://us-east:5601",
           "base_rtt_ms": 24,
           "cost_weight": 0.25,
           "max_in_flight": 200,
@@ -52,7 +52,7 @@
         {
           "name": "us-west",
           "region": "us-west",
-          "app_uri": "http://us-west:5678",
+          "app_uri": "http://us-west:5602",
           "base_rtt_ms": 36,
           "cost_weight": 0.2,
           "max_in_flight": 200,
