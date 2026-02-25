@@ -11,6 +11,7 @@ import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 KIT_DIR = ROOT / "research-kit"
@@ -21,11 +22,13 @@ REQUESTS_PER_REGION = int(os.environ.get("REQUESTS_PER_REGION", "150"))
 RILOT_HOST_PORT = os.environ.get("RILOT_HOST_PORT", "18080")
 RILOT_URL = os.environ.get("RILOT_URL", f"http://127.0.0.1:{RILOT_HOST_PORT}")
 USER_REGION_INPUT_MODE = os.environ.get("USER_REGION_INPUT_MODE", "header-synthetic")
+CARBON_VARIANCE_PROFILE = os.environ.get("CARBON_VARIANCE_PROFILE", "default")
+ENABLE_FAILURE_SCENARIO = os.environ.get("ENABLE_FAILURE_SCENARIO", "1") not in ("0", "false", "False")
 COMPOSE = ["docker", "compose", "-f", str(KIT_DIR / "docker-compose.yml")]
 COMPOSE_ENV = os.environ.copy()
 COMPOSE_ENV["RILOT_HOST_PORT"] = RILOT_HOST_PORT
 
-MODES = [
+BASE_MODES = [
     ("baseline_no_carbon_balanced", {"enabled": False, "priority_mode": "balanced", "route_class": "flexible"}),
     ("baseline_no_carbon_latency_first", {"enabled": False, "priority_mode": "latency-first", "route_class": "flexible"}),
     ("baseline_no_carbon_strict_local", {"enabled": False, "priority_mode": "latency-first", "route_class": "strict-local"}),
@@ -54,20 +57,45 @@ def run(cmd, cwd=ROOT):
     subprocess.run(cmd, cwd=str(cwd), check=True, env=COMPOSE_ENV)
 
 
-def collect_rilot_cpu_percent():
+def parse_size_to_mib(value: str) -> Optional[float]:
+    raw = (value or "").strip().replace("iB", "B")
+    if not raw:
+        return None
+    units = [("GB", 1024.0), ("MB", 1.0), ("KB", 1.0 / 1024.0), ("B", 1.0 / (1024.0 * 1024.0))]
+    for unit, factor in units:
+        if raw.endswith(unit):
+            try:
+                number = float(raw[: -len(unit)].strip())
+                return number * factor
+            except Exception:
+                return None
+    try:
+        return float(raw) / (1024.0 * 1024.0)
+    except Exception:
+        return None
+
+
+def collect_rilot_resource_sample() -> Tuple[Optional[float], Optional[float]]:
     try:
         out = subprocess.check_output(
-            ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}}", "rilot"],
+            ["docker", "stats", "--no-stream", "--format", "{{.CPUPerc}},{{.MemUsage}}", "rilot"],
             cwd=str(ROOT),
             env=COMPOSE_ENV,
             stderr=subprocess.DEVNULL,
             text=True,
         ).strip()
-        if out.endswith("%"):
-            out = out[:-1].strip()
-        return float(out) if out else 0.0
+        if not out:
+            return (None, None)
+        cpu_raw, _, mem_raw = out.partition(",")
+        cpu_raw = cpu_raw.strip()
+        if cpu_raw.endswith("%"):
+            cpu_raw = cpu_raw[:-1].strip()
+        cpu_percent = float(cpu_raw) if cpu_raw else None
+        mem_usage = mem_raw.split("/", 1)[0].strip() if mem_raw else ""
+        memory_mb = parse_size_to_mib(mem_usage)
+        return (cpu_percent, memory_mb)
     except Exception:
-        return None
+        return (None, None)
 
 
 def parse_prom_sum(text: str, metric_name: str, route_filter: str):
@@ -146,6 +174,40 @@ def load_fixture_expectation():
         "greener_region": "tie",
         "expected_cross_direction": "none",
     }
+
+
+def build_modes():
+    modes = list(BASE_MODES)
+    if ENABLE_FAILURE_SCENARIO:
+        modes.append(
+            (
+                "carbon_first_provider_timeout",
+                {
+                    "enabled": True,
+                    "priority_mode": "carbon-first",
+                    "provider": "slow-mock",
+                    "provider_timeout_ms": 5,
+                    "route_class": "flexible",
+                },
+            )
+        )
+    return modes
+
+
+def apply_carbon_variance_profile(cfg: dict) -> dict:
+    out = json.loads(json.dumps(cfg))
+    if CARBON_VARIANCE_PROFILE != "high-variance":
+        return out
+    carbon = out.setdefault("carbon", {})
+    carbon["zone_current"] = {
+        "us-east": 780,
+        "us-west": 120,
+    }
+    carbon["zone_forecast_next"] = {
+        "us-east": 700,
+        "us-west": 110,
+    }
+    return out
 
 
 def send_requests(base_url: str, scenario: str, out_csv: Path):
@@ -243,6 +305,10 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
 
 def apply_mode(cfg: dict, mode_name: str, mode_cfg: dict) -> dict:
     out = json.loads(json.dumps(cfg))
+    if "provider" in mode_cfg:
+        out.setdefault("carbon", {})["provider"] = mode_cfg["provider"]
+    if "provider_timeout_ms" in mode_cfg:
+        out.setdefault("carbon", {})["provider_timeout_ms"] = int(mode_cfg["provider_timeout_ms"])
     for proxy in out.get("proxies", []):
         policy = proxy.get("policy", {})
         policy["plugin_enabled"] = False
@@ -299,12 +365,13 @@ def main():
         ])
 
     original_config = CONFIG_PATH.read_text(encoding="utf-8")
-    base_cfg = json.loads(original_config)
+    base_cfg = apply_carbon_variance_profile(json.loads(original_config))
+    modes = build_modes()
     summaries = []
     try:
         run(COMPOSE + ["up", "-d", "us-east", "us-west"])
 
-        for mode_name, mode_cfg in MODES:
+        for mode_name, mode_cfg in modes:
             mode_out = apply_mode(base_cfg, mode_name, mode_cfg)
             CONFIG_PATH.write_text(json.dumps(mode_out, indent=2) + "\n", encoding="utf-8")
             run(COMPOSE + ["up", "-d", "--build", "rilot"])
@@ -316,6 +383,7 @@ def main():
             (out_dir / f"metrics-{mode_name}.prom").write_text(metrics_text, encoding="utf-8")
 
             lats = req_stats["latencies"]
+            cpu_percent, memory_mb = collect_rilot_resource_sample()
             summaries.append({
                 "scenario": mode_name,
                 "kind": "rilot_mode",
@@ -327,7 +395,8 @@ def main():
                 "latency_p95_ms": percentile(lats, 95),
                 "carbon_exposure_mean_g_per_kwh": mean_exposure,
                 "co2e_estimated_total_g": co2e_total,
-                "cpu_percent_sample": collect_rilot_cpu_percent(),
+                "cpu_percent_sample": cpu_percent,
+                "memory_mb_sample": memory_mb,
                 "zone_counts": req_by_zone,
                 "cross_region_reroutes": req_stats["cross_region_count"],
                 "east_to_west_reroutes": req_stats["east_to_west_count"],
@@ -346,6 +415,7 @@ def main():
     baseline_p95 = baseline["latency_p95_ms"] if baseline else 0.0
     baseline_co2e = baseline["co2e_estimated_total_g"] if baseline else 0.0
     baseline_cpu = baseline["cpu_percent_sample"] if baseline else None
+    baseline_mem = baseline["memory_mb_sample"] if baseline else None
     for row in summaries:
         saved_abs = baseline_exposure - row["carbon_exposure_mean_g_per_kwh"]
         saved_pct = (saved_abs / baseline_exposure * 100.0) if baseline_exposure > 0 else 0.0
@@ -363,6 +433,10 @@ def main():
             row["cpu_delta_percent_vs_baseline"] = row["cpu_percent_sample"] - baseline_cpu
         else:
             row["cpu_delta_percent_vs_baseline"] = None
+        if baseline_mem is not None and row.get("memory_mb_sample") is not None:
+            row["memory_delta_mb_vs_baseline"] = row["memory_mb_sample"] - baseline_mem
+        else:
+            row["memory_delta_mb_vs_baseline"] = None
 
     fields = [
         "scenario",
@@ -376,6 +450,8 @@ def main():
         "latency_p95_delta_ms_vs_baseline",
         "cpu_percent_sample",
         "cpu_delta_percent_vs_baseline",
+        "memory_mb_sample",
+        "memory_delta_mb_vs_baseline",
         "cross_region_reroutes",
         "east_to_west_reroutes",
         "west_to_east_reroutes",
@@ -400,14 +476,18 @@ def main():
         f"- Route: `{ROUTE}`",
         f"- Requests per region: `{REQUESTS_PER_REGION}`",
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
+        f"- Carbon variance profile: `{CARBON_VARIANCE_PROFILE}`",
+        f"- Failure scenario enabled: `{ENABLE_FAILURE_SCENARIO}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
-        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | cpu % sample | cpu delta % | mean exposure g/kWh | exposure saved % | co2e saved % |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | cpu % sample | cpu delta % | mem MB sample | mem delta MB | mean exposure g/kWh | exposure saved % | co2e saved % |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
         cpu = "" if row.get("cpu_percent_sample") is None else f"{row['cpu_percent_sample']:.2f}"
         cpu_delta = "" if row.get("cpu_delta_percent_vs_baseline") is None else f"{row['cpu_delta_percent_vs_baseline']:+.2f}"
+        mem = "" if row.get("memory_mb_sample") is None else f"{row['memory_mb_sample']:.2f}"
+        mem_delta = "" if row.get("memory_delta_mb_vs_baseline") is None else f"{row['memory_delta_mb_vs_baseline']:+.2f}"
         top_zone = ""
         if row.get("zone_counts"):
             top_zone = max(row["zone_counts"].items(), key=lambda it: it[1])[0]
@@ -415,7 +495,7 @@ def main():
             f"| {row['scenario']} | {row['error_rate_percent']:.2f}% | {row['latency_avg_ms']:.2f} | {row['latency_p95_ms']:.2f} | "
             f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {row.get('cross_region_reroutes', 0)} | "
             f"{row.get('east_to_west_reroutes', 0)} | {row.get('west_to_east_reroutes', 0)} | "
-            f"{cpu} | {cpu_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
+            f"{cpu} | {cpu_delta} | {mem} | {mem_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
             f"{row['carbon_exposure_saved_percent_vs_baseline']:+.2f}% | {row['co2e_saved_percent_vs_baseline']:+.2f}% |"
         )
         if top_zone:

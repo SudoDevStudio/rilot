@@ -36,12 +36,14 @@ The workflow executes:
 4. Latency-first (carbon enabled).
 5. Carbon-first.
 6. Balanced.
+7. Provider-timeout robustness scenario (`carbon_first_provider_timeout`) when enabled.
 
 Measure:
 
 - Carbon exposure: `carbon_intensity_exposure_total{route,zone}`.
 - Carbon estimate: `co2e_estimated_total{route,zone}`.
 - Performance: request latency (avg, p95), error rate, and sampled CPU overhead.
+- Performance: request latency (avg, p95), error rate, sampled CPU overhead, and sampled memory usage.
 - Service quality: error rate and tail-latency budget misses.
 
 Outputs:
@@ -58,7 +60,20 @@ Outputs:
 - Carbon-aware routing can yield measurable reductions in carbon-intensity exposure without materially changing p95 latency; small reductions are expected when candidate regions have similar carbon values.
 - `latency_first` is a useful control: it prioritizes responsiveness and often increases carbon exposure relative to `balanced`/`carbon_first`.
 - Treat `cpu_percent_sample=0.0` as "not captured", not "no overhead". Re-run with host-level CPU capture enabled before reporting compute-cost conclusions.
+- Treat empty memory samples as "not captured", not "zero memory overhead".
 - For stronger effect sizes in papers, use longer runs and carbon traces with larger regional variance.
+
+## Optional experiment variants
+
+- High variance trace profile:
+  - `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
+  - Uses a wider east/west carbon split in `zone_current`/`zone_forecast_next`.
+- Robustness scenario toggle:
+  - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (default)
+  - Adds `slow-mock` + short provider timeout scenario.
+- Sensitivity analysis:
+  - `python3 research-kit/scripts/run_weight_sensitivity.py`
+  - Produces `research-kit/results/sensitivity-<timestamp>/weights-summary.{json,md}`.
 
 ## Ethical and practical implications
 
@@ -72,3 +87,9 @@ Outputs:
 
 - Provider is mock-first; external APIs can be added behind the same cached signal interface.
 - Energy/CO2e are model-based estimates and should be calibrated for publication claims.
+
+## Data availability template
+
+Use a statement such as:
+
+"All scripts, configs, and traces required to reproduce the reported experiments are available in `research-kit/` in this repository. Generated result artifacts (summary CSV/JSON/Markdown and per-scenario metrics dumps) are archived with the submission supplementary material."

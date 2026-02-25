@@ -71,6 +71,13 @@ The generated `summary.md` includes explicit trade-off deltas versus baseline:
 - latency p95 delta
 - error rate
 - sampled CPU delta
+- sampled memory delta
+
+Optional stronger-evidence runs:
+
+- `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
+- `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (provider-timeout robustness)
+- `python3 ./scripts/run_weight_sensitivity.py` (policy weight sensitivity)
 
 ## Core docs
 
