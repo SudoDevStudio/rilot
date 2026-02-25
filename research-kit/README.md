@@ -80,6 +80,26 @@ python3 ./scripts/run_weight_sensitivity.py
 - If memory columns are empty, memory sampling was not captured for that run.
 - To increase signal separation, run longer workloads and/or use traces with wider regional carbon spread (high-carbon vs low-carbon regions).
 
+## Submission Reproduction Bundle
+
+Run these three commands and include the generated folders in your supplementary package:
+
+```bash
+cd research-kit
+CARBON_VARIANCE_PROFILE=high-variance ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh
+python3 ./scripts/run_weight_sensitivity.py
+```
+
+Expected outputs:
+
+- `results/comparative-<timestamp>/summary.{md,csv,json}`
+- `results/comparative-<timestamp>/requests.csv`
+- `results/comparative-<timestamp>/metrics-*.prom`
+- `results/sensitivity-<timestamp>/weights-summary.{md,json}`
+
+Failure/operational evidence is captured by scenario `carbon_first_provider_timeout` in `summary.*`.
+Use this row to demonstrate timeout/fallback behavior and service stability under degraded carbon-signal conditions.
+
 ## Related docs
 
 - `docs/research-toolkit.md`

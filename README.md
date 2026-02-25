@@ -109,6 +109,15 @@ Optional stronger-evidence runs:
 - Cloud platforms can expose per-tenant policy profiles (latency-first, carbon-first, balanced) using the same routing core.
 - Edge/API gateway teams can integrate route-level Wasm overrides for custom scoring and external signal sources without changing core proxy code.
 
+## Data Availability Statement
+
+All code, configuration, and experiment scripts required to reproduce the reported results are included in this repository.
+
+- Comparative evaluation scripts: `research-kit/scripts/run_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
+- Sensitivity analysis script: `research-kit/scripts/run_weight_sensitivity.py`
+- Experiment configuration and traces: `research-kit/config.docker.json`, `research-kit/carbon-traces/`
+- Generated artifacts: `research-kit/results/` (summary tables, per-request CSV, Prometheus snapshots)
+
 ## License
 
 MIT
