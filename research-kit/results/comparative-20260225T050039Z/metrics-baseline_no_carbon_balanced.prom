@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="us-west"} 20
+carbon_safe_calls_total{route="/",zone="us-west"} 0
+carbon_safe_call_ratio{route="/",zone="us-west"} 0.00000000
+errors_total{route="/",zone="us-west"} 0
+carbon_intensity_exposure_total{route="/",zone="us-west"} 14835.00107193
+co2e_estimated_total{route="/",zone="us-west"} 0.00053406
+energy_joules_estimated_total{route="/",zone="us-west"} 2.59201463
+latency_ms_bucket{route="/",zone="us-west",le="25"} 0
+latency_ms_bucket{route="/",zone="us-west",le="50"} 19
+latency_ms_bucket{route="/",zone="us-west",le="100"} 20
+latency_ms_bucket{route="/",zone="us-west",le="250"} 20
+latency_ms_bucket{route="/",zone="us-west",le="500"} 20
+latency_ms_bucket{route="/",zone="us-west",le="1000"} 20
+latency_ms_bucket{route="/",zone="us-west",le="2000"} 20
+requests_total{route="/",zone="us-east"} 20
+carbon_safe_calls_total{route="/",zone="us-east"} 20
+carbon_safe_call_ratio{route="/",zone="us-east"} 1.00000000
+errors_total{route="/",zone="us-east"} 0
+carbon_intensity_exposure_total{route="/",zone="us-east"} 2288.19240785
+co2e_estimated_total{route="/",zone="us-east"} 0.00004843
+energy_joules_estimated_total{route="/",zone="us-east"} 1.52347862
+latency_ms_bucket{route="/",zone="us-east",le="25"} 10
+latency_ms_bucket{route="/",zone="us-east",le="50"} 20
+latency_ms_bucket{route="/",zone="us-east",le="100"} 20
+latency_ms_bucket{route="/",zone="us-east",le="250"} 20
+latency_ms_bucket{route="/",zone="us-east",le="500"} 20
+latency_ms_bucket{route="/",zone="us-east",le="1000"} 20
+latency_ms_bucket{route="/",zone="us-east",le="2000"} 20
+carbon_intensity_g_per_kwh{zone="us-east"} 114.115390
+carbon_intensity_g_per_kwh{zone="us-west"} 741.750054

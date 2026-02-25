@@ -98,6 +98,80 @@ def collect_rilot_resource_sample() -> Tuple[Optional[float], Optional[float]]:
         return (None, None)
 
 
+def bytes_to_mib(value: Optional[int]) -> Optional[float]:
+    if value is None:
+        return None
+    return value / (1024.0 * 1024.0)
+
+
+def docker_exec_capture(cmd: str) -> Optional[str]:
+    try:
+        out = subprocess.check_output(
+            ["docker", "exec", "rilot", "sh", "-lc", cmd],
+            cwd=str(ROOT),
+            env=COMPOSE_ENV,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+        return out.strip()
+    except Exception:
+        return None
+
+
+def read_cgroup_cpu_usage_usec() -> Optional[int]:
+    # cgroup v2 primary path
+    out = docker_exec_capture("cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true")
+    if out:
+        for line in out.splitlines():
+            parts = line.split()
+            if len(parts) != 2:
+                continue
+            key, raw = parts
+            if key == "usage_usec":
+                try:
+                    return int(raw)
+                except Exception:
+                    pass
+            if key == "usage_nsec":
+                try:
+                    return int(int(raw) / 1000)
+                except Exception:
+                    pass
+
+    # cgroup v1 fallback (nanoseconds)
+    out = docker_exec_capture("cat /sys/fs/cgroup/cpuacct/cpuacct.usage 2>/dev/null || true")
+    if out:
+        try:
+            return int(int(out) / 1000)
+        except Exception:
+            return None
+    return None
+
+
+def read_cgroup_memory_current_bytes() -> Optional[int]:
+    out = docker_exec_capture(
+        "cat /sys/fs/cgroup/memory.current 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || true"
+    )
+    if not out:
+        return None
+    try:
+        return int(out)
+    except Exception:
+        return None
+
+
+def read_cgroup_memory_peak_bytes() -> Optional[int]:
+    out = docker_exec_capture(
+        "cat /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.max_usage_in_bytes 2>/dev/null || true"
+    )
+    if not out:
+        return None
+    try:
+        return int(out)
+    except Exception:
+        return None
+
+
 def parse_prom_sum(text: str, metric_name: str, route_filter: str):
     total = 0.0
     by_zone = {}
@@ -378,12 +452,30 @@ def main():
             if not wait_http_ok(f"{RILOT_URL}/metrics"):
                 raise RuntimeError(f"rilot metrics not ready for mode={mode_name}")
 
+            cpu_start_usec = read_cgroup_cpu_usage_usec()
+            mem_peak_start = read_cgroup_memory_peak_bytes()
+            start_wall = time.perf_counter()
             req_stats = send_requests(RILOT_URL, mode_name, per_req_csv)
+            elapsed_wall = max(time.perf_counter() - start_wall, 0.001)
+            cpu_end_usec = read_cgroup_cpu_usage_usec()
+            mem_peak_end = read_cgroup_memory_peak_bytes()
+            mem_current_end = read_cgroup_memory_current_bytes()
             metrics_text, req_total, req_by_zone, co2e_total, mean_exposure = collect_rilot_metrics(ROUTE)
             (out_dir / f"metrics-{mode_name}.prom").write_text(metrics_text, encoding="utf-8")
 
             lats = req_stats["latencies"]
-            cpu_percent, memory_mb = collect_rilot_resource_sample()
+            cpu_percent_stats, memory_mb_stats = collect_rilot_resource_sample()
+            cpu_percent_window = None
+            if cpu_start_usec is not None and cpu_end_usec is not None and cpu_end_usec >= cpu_start_usec:
+                cpu_delta_secs = (cpu_end_usec - cpu_start_usec) / 1_000_000.0
+                cpu_percent_window = (cpu_delta_secs / elapsed_wall) * 100.0
+            cpu_percent = cpu_percent_window if cpu_percent_window is not None else cpu_percent_stats
+
+            memory_peak_delta = None
+            if mem_peak_start is not None and mem_peak_end is not None:
+                memory_peak_delta = bytes_to_mib(max(mem_peak_end - mem_peak_start, 0))
+            memory_mb = bytes_to_mib(mem_peak_end) if mem_peak_end is not None else memory_mb_stats
+            memory_current_mb = bytes_to_mib(mem_current_end)
             summaries.append({
                 "scenario": mode_name,
                 "kind": "rilot_mode",
@@ -396,7 +488,10 @@ def main():
                 "carbon_exposure_mean_g_per_kwh": mean_exposure,
                 "co2e_estimated_total_g": co2e_total,
                 "cpu_percent_sample": cpu_percent,
+                "cpu_sample_method": "cgroup_delta" if cpu_percent_window is not None else "docker_stats",
                 "memory_mb_sample": memory_mb,
+                "memory_current_mb_sample": memory_current_mb,
+                "memory_peak_delta_mb": memory_peak_delta,
                 "zone_counts": req_by_zone,
                 "cross_region_reroutes": req_stats["cross_region_count"],
                 "east_to_west_reroutes": req_stats["east_to_west_count"],
@@ -449,8 +544,11 @@ def main():
         "latency_p95_ms",
         "latency_p95_delta_ms_vs_baseline",
         "cpu_percent_sample",
+        "cpu_sample_method",
         "cpu_delta_percent_vs_baseline",
         "memory_mb_sample",
+        "memory_current_mb_sample",
+        "memory_peak_delta_mb",
         "memory_delta_mb_vs_baseline",
         "cross_region_reroutes",
         "east_to_west_reroutes",

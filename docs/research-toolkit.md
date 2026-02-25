@@ -42,7 +42,6 @@ Measure:
 
 - Carbon exposure: `carbon_intensity_exposure_total{route,zone}`.
 - Carbon estimate: `co2e_estimated_total{route,zone}`.
-- Performance: request latency (avg, p95), error rate, and sampled CPU overhead.
 - Performance: request latency (avg, p95), error rate, sampled CPU overhead, and sampled memory usage.
 - Service quality: error rate and tail-latency budget misses.
 
@@ -59,9 +58,30 @@ Outputs:
 
 - Carbon-aware routing can yield measurable reductions in carbon-intensity exposure without materially changing p95 latency; small reductions are expected when candidate regions have similar carbon values.
 - `latency_first` is a useful control: it prioritizes responsiveness and often increases carbon exposure relative to `balanced`/`carbon_first`.
-- Treat `cpu_percent_sample=0.0` as "not captured", not "no overhead". Re-run with host-level CPU capture enabled before reporting compute-cost conclusions.
+- CPU overhead uses cgroup window deltas when available (`cpu_sample_method=cgroup_delta`), with `docker_stats` as fallback.
 - Treat empty memory samples as "not captured", not "zero memory overhead".
 - For stronger effect sizes in papers, use longer runs and carbon traces with larger regional variance.
+
+## Fairness and user impact
+
+- High-variance runs can shift a large share of traffic to a greener region (for example, west-origin requests rerouted to east).
+- Report reroute direction counts (`east_to_west_reroutes`, `west_to_east_reroutes`) together with latency/error to show user impact transparently.
+- Mitigation knobs:
+  - tighten `max_added_latency_ms`
+  - reduce `w_carbon` and/or increase `w_latency`
+  - apply strict-local policy for user-critical routes
+  - use route-level allowlists and tags to limit cross-region migration
+
+## Model calibration status
+
+- CO2e values are model-based and intended for comparative policy studies, not absolute billing-grade emissions accounting.
+- Strengthen claims by calibrating against measured energy traces (RAPL/PDU/cloud telemetry) and reporting model error.
+
+## Real-world case study path
+
+- Replace mock provider with `carbon.provider=electricitymap` and real zone mapping.
+- Run the same scripts against a real microservice endpoint behind each zone.
+- Compare policy modes on the same workload replay to show external validity.
 
 ## Optional experiment variants
 

@@ -44,7 +44,7 @@ The comparative summary now also reports reroute counts per mode:
 
 Resource-overhead fields are also included per scenario:
 
-- `cpu_percent_sample`, `cpu_delta_percent_vs_baseline`
+- `cpu_percent_sample`, `cpu_sample_method`, `cpu_delta_percent_vs_baseline`
 - `memory_mb_sample`, `memory_delta_mb_vs_baseline`
 
 Optional region input mode:
@@ -99,6 +99,14 @@ Expected outputs:
 
 Failure/operational evidence is captured by scenario `carbon_first_provider_timeout` in `summary.*`.
 Use this row to demonstrate timeout/fallback behavior and service stability under degraded carbon-signal conditions.
+
+Fairness/user-impact evidence is captured in reroute columns:
+
+- `cross_region_reroutes`
+- `east_to_west_reroutes`
+- `west_to_east_reroutes`
+
+Use these with latency/error metrics to report trade-offs and justify policy guardrails.
 
 ## Related docs
 

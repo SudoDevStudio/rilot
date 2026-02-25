@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="us-west"} 20
+carbon_safe_calls_total{route="/",zone="us-west"} 0
+carbon_safe_call_ratio{route="/",zone="us-west"} 0.00000000
+errors_total{route="/",zone="us-west"} 2
+carbon_intensity_exposure_total{route="/",zone="us-west"} 14889.65828865
+co2e_estimated_total{route="/",zone="us-west"} 0.00055066
+energy_joules_estimated_total{route="/",zone="us-west"} 2.66277689
+latency_ms_bucket{route="/",zone="us-west",le="25"} 0
+latency_ms_bucket{route="/",zone="us-west",le="50"} 17
+latency_ms_bucket{route="/",zone="us-west",le="100"} 20
+latency_ms_bucket{route="/",zone="us-west",le="250"} 20
+latency_ms_bucket{route="/",zone="us-west",le="500"} 20
+latency_ms_bucket{route="/",zone="us-west",le="1000"} 20
+latency_ms_bucket{route="/",zone="us-west",le="2000"} 20
+requests_total{route="/",zone="us-east"} 20
+carbon_safe_calls_total{route="/",zone="us-east"} 20
+carbon_safe_call_ratio{route="/",zone="us-east"} 1.00000000
+errors_total{route="/",zone="us-east"} 0
+carbon_intensity_exposure_total{route="/",zone="us-east"} 2296.18080292
+co2e_estimated_total{route="/",zone="us-east"} 0.00005250
+energy_joules_estimated_total{route="/",zone="us-east"} 1.64686762
+latency_ms_bucket{route="/",zone="us-east",le="25"} 4
+latency_ms_bucket{route="/",zone="us-east",le="50"} 20
+latency_ms_bucket{route="/",zone="us-east",le="100"} 20
+latency_ms_bucket{route="/",zone="us-east",le="250"} 20
+latency_ms_bucket{route="/",zone="us-east",le="500"} 20
+latency_ms_bucket{route="/",zone="us-east",le="1000"} 20
+latency_ms_bucket{route="/",zone="us-east",le="2000"} 20
+carbon_intensity_g_per_kwh{zone="us-west"} 744.482914
+carbon_intensity_g_per_kwh{zone="us-east"} 114.535832
