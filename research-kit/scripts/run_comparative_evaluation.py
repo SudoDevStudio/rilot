@@ -200,12 +200,12 @@ def apply_carbon_variance_profile(cfg: dict) -> dict:
         return out
     carbon = out.setdefault("carbon", {})
     carbon["zone_current"] = {
-        "us-east": 780,
-        "us-west": 120,
+        "us-east": 120,
+        "us-west": 780,
     }
     carbon["zone_forecast_next"] = {
-        "us-east": 700,
-        "us-west": 110,
+        "us-east": 110,
+        "us-west": 700,
     }
     return out
 
