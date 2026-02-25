@@ -88,12 +88,17 @@ Outputs:
 - High variance trace profile:
   - `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
   - Uses a wider east/west carbon split in `zone_current`/`zone_forecast_next`.
+- Real-data provider override:
+  - `CARBON_PROVIDER_OVERRIDE=electricitymap-local ELECTRICITYMAP_FIXTURE_OVERRIDE=./carbon-traces/electricitymap-latest-sample.json ./scripts/run_experiment.sh`
+  - `CARBON_PROVIDER_OVERRIDE=electricitymap ELECTRICITYMAP_API_KEY_OVERRIDE=<key> ./scripts/run_experiment.sh`
 - Robustness scenario toggle:
   - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (default)
   - Adds `slow-mock` + short provider timeout scenario.
 - Sensitivity analysis:
   - `python3 research-kit/scripts/run_weight_sensitivity.py`
   - Produces `research-kit/results/sensitivity-<timestamp>/weights-summary.{json,md}`.
+- Long-duration study:
+  - `REQUESTS_PER_REGION=1000 ./scripts/run_experiment.sh`
 
 ## Ethical and practical implications
 

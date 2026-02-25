@@ -59,6 +59,30 @@ Run with higher carbon variance (stronger effect-size tests):
 CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh
 ```
 
+Run a longer-duration case study (same setup, larger workload):
+
+```bash
+REQUESTS_PER_REGION=1000 ./scripts/run_experiment.sh
+```
+
+Run a real-data style case study using ElectricityMap-compatible signals:
+
+```bash
+# Offline fixture mode (captured ElectricityMap-format JSON)
+CARBON_PROVIDER_OVERRIDE=electricitymap-local \
+ELECTRICITYMAP_FIXTURE_OVERRIDE=./carbon-traces/electricitymap-latest-sample.json \
+REQUESTS_PER_REGION=1000 \
+./scripts/run_experiment.sh
+```
+
+```bash
+# Live ElectricityMap mode (requires API key)
+CARBON_PROVIDER_OVERRIDE=electricitymap \
+ELECTRICITYMAP_API_KEY_OVERRIDE=<your_api_key> \
+REQUESTS_PER_REGION=1000 \
+./scripts/run_experiment.sh
+```
+
 Enable/disable timeout robustness scenario:
 
 ```bash
@@ -107,6 +131,13 @@ Fairness/user-impact evidence is captured in reroute columns:
 - `west_to_east_reroutes`
 
 Use these with latency/error metrics to report trade-offs and justify policy guardrails.
+
+Fairness/locality tuning knobs (in `config.docker.json` policy):
+
+- Reduce `w_carbon` and increase `w_latency` for user-facing routes.
+- Set tighter `constraints.max_added_latency_ms` and `constraints.p95_latency_budget_ms`.
+- Use `route_class=strict-local` for critical locality-sensitive routes.
+- Limit migration scope via `constraints.zone_allowlist` and zone `tags`.
 
 ## Related docs
 

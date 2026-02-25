@@ -24,6 +24,9 @@ RILOT_URL = os.environ.get("RILOT_URL", f"http://127.0.0.1:{RILOT_HOST_PORT}")
 USER_REGION_INPUT_MODE = os.environ.get("USER_REGION_INPUT_MODE", "header-synthetic")
 CARBON_VARIANCE_PROFILE = os.environ.get("CARBON_VARIANCE_PROFILE", "default")
 ENABLE_FAILURE_SCENARIO = os.environ.get("ENABLE_FAILURE_SCENARIO", "1") not in ("0", "false", "False")
+CARBON_PROVIDER_OVERRIDE = os.environ.get("CARBON_PROVIDER_OVERRIDE", "").strip()
+ELECTRICITYMAP_FIXTURE_OVERRIDE = os.environ.get("ELECTRICITYMAP_FIXTURE_OVERRIDE", "").strip()
+ELECTRICITYMAP_API_KEY_OVERRIDE = os.environ.get("ELECTRICITYMAP_API_KEY_OVERRIDE", "").strip()
 COMPOSE = ["docker", "compose", "-f", str(KIT_DIR / "docker-compose.yml")]
 COMPOSE_ENV = os.environ.copy()
 COMPOSE_ENV["RILOT_HOST_PORT"] = RILOT_HOST_PORT
@@ -284,6 +287,18 @@ def apply_carbon_variance_profile(cfg: dict) -> dict:
     return out
 
 
+def apply_carbon_provider_overrides(cfg: dict) -> dict:
+    out = json.loads(json.dumps(cfg))
+    carbon = out.setdefault("carbon", {})
+    if CARBON_PROVIDER_OVERRIDE:
+        carbon["provider"] = CARBON_PROVIDER_OVERRIDE
+    if ELECTRICITYMAP_FIXTURE_OVERRIDE:
+        carbon["electricitymap_local_fixture"] = ELECTRICITYMAP_FIXTURE_OVERRIDE
+    if ELECTRICITYMAP_API_KEY_OVERRIDE:
+        carbon["electricitymap_api_key"] = ELECTRICITYMAP_API_KEY_OVERRIDE
+    return out
+
+
 def send_requests(base_url: str, scenario: str, out_csv: Path):
     latencies = []
     zone_counts = {}
@@ -439,7 +454,9 @@ def main():
         ])
 
     original_config = CONFIG_PATH.read_text(encoding="utf-8")
-    base_cfg = apply_carbon_variance_profile(json.loads(original_config))
+    base_cfg = apply_carbon_provider_overrides(
+        apply_carbon_variance_profile(json.loads(original_config))
+    )
     modes = build_modes()
     summaries = []
     try:
@@ -575,6 +592,7 @@ def main():
         f"- Requests per region: `{REQUESTS_PER_REGION}`",
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
         f"- Carbon variance profile: `{CARBON_VARIANCE_PROFILE}`",
+        f"- Carbon provider override: `{CARBON_PROVIDER_OVERRIDE or 'none'}`",
         f"- Failure scenario enabled: `{ENABLE_FAILURE_SCENARIO}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
