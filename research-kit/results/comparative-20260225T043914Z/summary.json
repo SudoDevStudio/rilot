@@ -1,0 +1,149 @@
+[
+  {
+    "scenario": "baseline_no_carbon_balanced",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 294,
+    "error_count": 6,
+    "error_rate_percent": 2.0,
+    "latency_avg_ms": 39.515591238159686,
+    "latency_p95_ms": 53.56725002638996,
+    "carbon_exposure_mean_g_per_kwh": 484.37644220333334,
+    "co2e_estimated_total_g": 0.00363752,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 2.77,
+    "zone_counts": {
+      "us-east": 150.0,
+      "us-west": 150.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0
+  },
+  {
+    "scenario": "baseline_no_carbon_latency_first",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 294,
+    "error_count": 6,
+    "error_rate_percent": 2.0,
+    "latency_avg_ms": 39.43180039214591,
+    "latency_p95_ms": 53.712999913841486,
+    "carbon_exposure_mean_g_per_kwh": 484.83238303789994,
+    "co2e_estimated_total_g": 0.00362608,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 2.777,
+    "zone_counts": {
+      "us-east": 150.0,
+      "us-west": 150.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0
+  },
+  {
+    "scenario": "baseline_no_carbon_strict_local",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 299,
+    "error_count": 1,
+    "error_rate_percent": 0.33333333333333337,
+    "latency_avg_ms": 39.14264276390895,
+    "latency_p95_ms": 54.19983295723796,
+    "carbon_exposure_mean_g_per_kwh": 485.19809824180004,
+    "co2e_estimated_total_g": 0.0035410999999999997,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 2.805,
+    "zone_counts": {
+      "us-west": 150.0,
+      "us-east": 150.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0
+  },
+  {
+    "scenario": "latency_first",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 294,
+    "error_count": 6,
+    "error_rate_percent": 2.0,
+    "latency_avg_ms": 31.984460964643706,
+    "latency_p95_ms": 40.280875051394105,
+    "carbon_exposure_mean_g_per_kwh": 817.9391450721666,
+    "co2e_estimated_total_g": 0.0057483000000000005,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 2.766,
+    "zone_counts": {
+      "us-east": 290.0,
+      "us-west": 10.0
+    },
+    "cross_region_reroutes": 136,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 136
+  },
+  {
+    "scenario": "carbon_first",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 298,
+    "error_count": 2,
+    "error_rate_percent": 0.6666666666666667,
+    "latency_avg_ms": 30.75387375118832,
+    "latency_p95_ms": 37.36912505701184,
+    "carbon_exposure_mean_g_per_kwh": 818.2179784494,
+    "co2e_estimated_total_g": 0.005538319999999999,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 2.773,
+    "zone_counts": {
+      "us-west": 10.0,
+      "us-east": 290.0
+    },
+    "cross_region_reroutes": 139,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 139
+  },
+  {
+    "scenario": "balanced",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 293,
+    "error_count": 7,
+    "error_rate_percent": 2.3333333333333335,
+    "latency_avg_ms": 32.509285542182624,
+    "latency_p95_ms": 49.24329183995724,
+    "carbon_exposure_mean_g_per_kwh": 766.1102210854333,
+    "co2e_estimated_total_g": 0.00532429,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 3.266,
+    "zone_counts": {
+      "us-east": 268.0,
+      "us-west": 32.0
+    },
+    "cross_region_reroutes": 113,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 113
+  },
+  {
+    "scenario": "carbon_first_provider_timeout",
+    "kind": "rilot_mode",
+    "requests": 300,
+    "ok_count": 297,
+    "error_count": 3,
+    "error_rate_percent": 1.0,
+    "latency_avg_ms": 39.1079519293271,
+    "latency_p95_ms": 53.94429201260209,
+    "carbon_exposure_mean_g_per_kwh": 450.0,
+    "co2e_estimated_total_g": 0.00332286,
+    "cpu_percent_sample": 0.0,
+    "memory_mb_sample": 3.043,
+    "zone_counts": {
+      "us-west": 150.0,
+      "us-east": 150.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0
+  }
+]
