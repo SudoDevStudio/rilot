@@ -28,6 +28,8 @@ static DECISION_REASON_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-decision-reason"));
 static CARBON_SAVED_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-carbon-saved-vs-worst"));
+static CARBON_SAVED_PERCENT_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-carbon-saved-vs-worst-percent"));
 static EXPOSE_RESEARCH_HEADERS: Lazy<bool> = Lazy::new(|| {
     std::env::var("RILOT_EXPOSE_RESEARCH_HEADERS")
         .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
@@ -128,6 +130,7 @@ struct ZoneScore {
     score: f64,
     carbon_g_per_kwh: Option<f64>,
     carbon_saved_vs_worst_g_per_kwh: f64,
+    carbon_saved_vs_worst_percent: f64,
     latency_ms: f64,
     error_rate: f64,
     cost: f64,
@@ -298,7 +301,13 @@ async fn handle_request(
         .map(|d| d.zone.name.clone())
         .unwrap_or_else(|| "default".to_string());
     let expose_research_headers = *EXPOSE_RESEARCH_HEADERS;
-    let (carbon_cache_ttl_left_secs, selected_carbon, selected_carbon_saved, selected_reason) =
+    let (
+        carbon_cache_ttl_left_secs,
+        selected_carbon,
+        selected_carbon_saved,
+        selected_carbon_saved_percent,
+        selected_reason,
+    ) =
         if expose_research_headers {
             let ttl_left = if config.carbon.provider == "electricitymap-local"
                 && config.carbon.electricitymap_local_live_reload
@@ -312,6 +321,10 @@ async fn handle_request(
                 .as_ref()
                 .map(|d| d.carbon_saved_vs_worst_g_per_kwh)
                 .unwrap_or(0.0);
+            let carbon_saved_percent = decision
+                .as_ref()
+                .map(|d| d.carbon_saved_vs_worst_percent)
+                .unwrap_or(0.0);
             let reason = decision
                 .as_ref()
                 .and_then(|d| d.filtered_out_reason.clone())
@@ -322,9 +335,9 @@ async fn handle_request(
                         "fallback-lowest-latency".to_string()
                     }
                 });
-            (ttl_left, carbon, carbon_saved, reason)
+            (ttl_left, carbon, carbon_saved, carbon_saved_percent, reason)
         } else {
-            (None, None, 0.0, String::new())
+            (None, None, 0.0, 0.0, String::new())
         };
 
     if let Some(d) = &decision {
@@ -454,6 +467,13 @@ async fn handle_request(
                     HeaderValue::from_str(&format!("{:.3}", selected_carbon_saved.max(0.0)))
                 {
                     res.headers_mut().insert(CARBON_SAVED_HEADER.clone(), value);
+                }
+                if let Ok(value) = HeaderValue::from_str(&format!(
+                    "{:.2}",
+                    selected_carbon_saved_percent.max(0.0)
+                )) {
+                    res.headers_mut()
+                        .insert(CARBON_SAVED_PERCENT_HEADER.clone(), value);
                 }
             }
             let status = res.status();
@@ -602,11 +622,25 @@ fn choose_zone(
             score: 0.0,
             carbon_g_per_kwh: chosen_carbon,
             carbon_saved_vs_worst_g_per_kwh: 0.0,
+            carbon_saved_vs_worst_percent: 0.0,
             latency_ms,
             error_rate,
             cost,
             filtered_out_reason,
         });
+    }
+
+    for score in &mut scores {
+        let saved_abs = score
+            .carbon_g_per_kwh
+            .map(|c| (max_carbon - c).max(0.0))
+            .unwrap_or(0.0);
+        score.carbon_saved_vs_worst_g_per_kwh = saved_abs;
+        score.carbon_saved_vs_worst_percent = if max_carbon > 0.0 {
+            (saved_abs / max_carbon) * 100.0
+        } else {
+            0.0
+        };
     }
 
     if !classified.carbon_cursor_enabled || !has_any_carbon {
@@ -654,10 +688,6 @@ fn choose_zone(
     );
     for score in &mut scores {
         let n_carbon = score.carbon_g_per_kwh.unwrap_or(max_carbon) / max_carbon;
-        score.carbon_saved_vs_worst_g_per_kwh = score
-            .carbon_g_per_kwh
-            .map(|c| (max_carbon - c).max(0.0))
-            .unwrap_or(0.0);
         let n_latency = score.latency_ms / max_latency;
         let n_errors = score.error_rate / max_error.max(0.001);
         let n_cost = if max_cost > 0.0 { score.cost / max_cost } else { 0.0 };
@@ -806,6 +836,7 @@ fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &A
                     score: last.score,
                     carbon_g_per_kwh: candidate.carbon_g_per_kwh,
                     carbon_saved_vs_worst_g_per_kwh: candidate.carbon_saved_vs_worst_g_per_kwh,
+                    carbon_saved_vs_worst_percent: candidate.carbon_saved_vs_worst_percent,
                     latency_ms: candidate.latency_ms,
                     error_rate: candidate.error_rate,
                     cost: candidate.cost,

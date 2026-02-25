@@ -51,6 +51,7 @@ Outputs:
 - `research-kit/results/comparative-<timestamp>/summary.md`
 - Per-scenario Prometheus dumps and request-level CSV.
 - CSV/Markdown trade-off deltas vs baseline (exposure saved, CO2e saved, latency delta, CPU delta).
+- Cross-region reroute observability (`east->west`, `west->east`) in both `requests.csv` and summary outputs.
 
 ## Reading the comparative outputs
 

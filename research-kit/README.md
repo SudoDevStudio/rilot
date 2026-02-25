@@ -30,10 +30,17 @@ Generated output includes:
 
 `requests.csv` now includes explainability fields:
 
-- `requested_region` and `header_region`
+- `request_region`, `routing_input_region`, and `selected_zone_region`
+- `route_relation` (`local` or `cross-region`) and `cross_region_reroute` (`true`/`false`)
 - `selected_carbon_intensity_g_per_kwh`
 - `carbon_saved_vs_worst_g_per_kwh`
 - `decision_reason`
+
+The comparative summary now also reports reroute counts per mode:
+
+- `cross_region_reroutes`
+- `east_to_west_reroutes`
+- `west_to_east_reroutes`
 
 Optional region input mode:
 

@@ -18,4 +18,3 @@ target/
 examples/config/config.json
 config.json
 __pycache__
-results

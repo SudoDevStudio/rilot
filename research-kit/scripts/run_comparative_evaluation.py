@@ -4,6 +4,7 @@ import json
 import math
 import os
 import random
+import shutil
 import subprocess
 import sys
 import time
@@ -102,11 +103,59 @@ def percentile(values, p):
     return float(seq[idx])
 
 
+def zone_to_region(zone_name: str) -> str:
+    z = (zone_name or "").lower()
+    if "east" in z:
+        return "us-east"
+    if "west" in z:
+        return "us-west"
+    return ""
+
+
+def local_vs_selected_relation(request_region: str, selected_zone: str) -> str:
+    selected_region = zone_to_region(selected_zone)
+    if not selected_region or not request_region:
+        return "unknown"
+    if request_region == selected_region:
+        return "local"
+    return "cross-region"
+
+
+def load_fixture_expectation():
+    fixture_path = KIT_DIR / "carbon-traces" / "electricitymap-latest-sample.json"
+    try:
+        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    zones = data.get("zones", {})
+    east = zones.get("us-east", {}).get("carbonIntensity")
+    west = zones.get("us-west", {}).get("carbonIntensity")
+    if east is None or west is None:
+        return None
+    if east < west:
+        return {
+            "greener_region": "us-east",
+            "expected_cross_direction": "us-west->us-east",
+        }
+    if west < east:
+        return {
+            "greener_region": "us-west",
+            "expected_cross_direction": "us-east->us-west",
+        }
+    return {
+        "greener_region": "tie",
+        "expected_cross_direction": "none",
+    }
+
+
 def send_requests(base_url: str, scenario: str, out_csv: Path):
     latencies = []
     zone_counts = {}
     ok_count = 0
     err_count = 0
+    cross_region_count = 0
+    east_to_west_count = 0
+    west_to_east_count = 0
     with out_csv.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         req_counter = 0
@@ -129,12 +178,16 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                 selected_carbon = ""
                 decision_reason = ""
                 carbon_saved_vs_worst = ""
+                carbon_saved_vs_worst_percent = ""
                 try:
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         code = resp.status
                         selected_carbon = resp.headers.get("x-rilot-selected-carbon-intensity", "")
                         decision_reason = resp.headers.get("x-rilot-decision-reason", "")
                         carbon_saved_vs_worst = resp.headers.get("x-rilot-carbon-saved-vs-worst", "")
+                        carbon_saved_vs_worst_percent = resp.headers.get(
+                            "x-rilot-carbon-saved-vs-worst-percent", ""
+                        )
                         body = resp.read().decode("utf-8", errors="replace")
                         try:
                             data = json.loads(body)
@@ -151,17 +204,30 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                     err_count += 1
                 if zone:
                     zone_counts[zone] = zone_counts.get(zone, 0) + 1
+                selected_zone_region = zone_to_region(zone)
+                route_relation = local_vs_selected_relation(header_region, zone)
+                is_cross_region = route_relation == "cross-region"
+                if is_cross_region:
+                    cross_region_count += 1
+                    if header_region == "us-east" and selected_zone_region == "us-west":
+                        east_to_west_count += 1
+                    elif header_region == "us-west" and selected_zone_region == "us-east":
+                        west_to_east_count += 1
                 w.writerow([
                     now_iso(),
                     scenario,
                     req_id,
                     region,
                     header_region,
+                    selected_zone_region,
+                    route_relation,
+                    "true" if is_cross_region else "false",
                     f"{latency_ms:.3f}",
                     code,
                     zone,
                     selected_carbon,
                     carbon_saved_vs_worst,
+                    carbon_saved_vs_worst_percent,
                     decision_reason,
                 ])
     return {
@@ -169,6 +235,9 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
         "ok_count": ok_count,
         "error_count": err_count,
         "zone_counts": zone_counts,
+        "cross_region_count": cross_region_count,
+        "east_to_west_count": east_to_west_count,
+        "west_to_east_count": west_to_east_count,
     }
 
 
@@ -198,6 +267,13 @@ def collect_rilot_metrics(route: str):
 
 
 def main():
+    RESULTS_BASE.mkdir(parents=True, exist_ok=True)
+    for child in RESULTS_BASE.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = RESULTS_BASE / f"comparative-{timestamp}"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -207,14 +283,18 @@ def main():
         w.writerow([
             "timestamp_utc",
             "scenario",
-            "request",
-            "requested_region",
-            "header_region",
+            "request_id",
+            "request_region",
+            "routing_input_region",
+            "selected_zone_region",
+            "route_relation",
+            "cross_region_reroute",
             "latency_ms",
             "http_code",
             "selected_zone",
             "selected_carbon_intensity_g_per_kwh",
             "carbon_saved_vs_worst_g_per_kwh",
+            "carbon_saved_vs_worst_percent",
             "decision_reason",
         ])
 
@@ -249,6 +329,9 @@ def main():
                 "co2e_estimated_total_g": co2e_total,
                 "cpu_percent_sample": collect_rilot_cpu_percent(),
                 "zone_counts": req_by_zone,
+                "cross_region_reroutes": req_stats["cross_region_count"],
+                "east_to_west_reroutes": req_stats["east_to_west_count"],
+                "west_to_east_reroutes": req_stats["west_to_east_count"],
             })
     finally:
         CONFIG_PATH.write_text(original_config, encoding="utf-8")
@@ -293,6 +376,9 @@ def main():
         "latency_p95_delta_ms_vs_baseline",
         "cpu_percent_sample",
         "cpu_delta_percent_vs_baseline",
+        "cross_region_reroutes",
+        "east_to_west_reroutes",
+        "west_to_east_reroutes",
         "carbon_exposure_mean_g_per_kwh",
         "carbon_exposure_saved_g_per_kwh_vs_baseline",
         "carbon_exposure_saved_percent_vs_baseline",
@@ -316,8 +402,8 @@ def main():
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
-        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | cpu % sample | cpu delta % | mean exposure g/kWh | exposure saved % | co2e saved % |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | cpu % sample | cpu delta % | mean exposure g/kWh | exposure saved % | co2e saved % |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
         cpu = "" if row.get("cpu_percent_sample") is None else f"{row['cpu_percent_sample']:.2f}"
@@ -327,11 +413,28 @@ def main():
             top_zone = max(row["zone_counts"].items(), key=lambda it: it[1])[0]
         lines.append(
             f"| {row['scenario']} | {row['error_rate_percent']:.2f}% | {row['latency_avg_ms']:.2f} | {row['latency_p95_ms']:.2f} | "
-            f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {cpu} | {cpu_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
+            f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {row.get('cross_region_reroutes', 0)} | "
+            f"{row.get('east_to_west_reroutes', 0)} | {row.get('west_to_east_reroutes', 0)} | "
+            f"{cpu} | {cpu_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
             f"{row['carbon_exposure_saved_percent_vs_baseline']:+.2f}% | {row['co2e_saved_percent_vs_baseline']:+.2f}% |"
         )
         if top_zone:
             lines.append(f"  - dominant zone: `{top_zone}`; zone split: `{row['zone_counts']}`")
+
+    fixture_expectation = load_fixture_expectation()
+    if fixture_expectation:
+        lines.extend([
+            "",
+            "## Cross-Region Expectation Check",
+            f"- Fixture greener region: `{fixture_expectation['greener_region']}`",
+            f"- Expected cross-region direction (carbon-aware modes): `{fixture_expectation['expected_cross_direction']}`",
+        ])
+        for row in summaries:
+            if row["scenario"] in ("carbon_first", "balanced", "latency_first"):
+                lines.append(
+                    f"- `{row['scenario']}` observed east->west: `{row.get('east_to_west_reroutes', 0)}`, "
+                    f"west->east: `{row.get('west_to_east_reroutes', 0)}`"
+                )
     summary_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Comparative evaluation results saved to: {out_dir}")
     return 0
