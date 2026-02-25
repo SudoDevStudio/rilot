@@ -1,0 +1,32 @@
+[
+  {
+    "weight_profile": "carbon_70",
+    "requests": 200,
+    "w_carbon": 0.7,
+    "w_latency": 0.2,
+    "w_errors": 0.1,
+    "w_cost": 0.0,
+    "carbon_exposure_mean_g_per_kwh": 171.5760090961,
+    "co2e_estimated_total_g": 0.00120013
+  },
+  {
+    "weight_profile": "balanced_50",
+    "requests": 200,
+    "w_carbon": 0.5,
+    "w_latency": 0.35,
+    "w_errors": 0.15,
+    "w_cost": 0.0,
+    "carbon_exposure_mean_g_per_kwh": 423.39336492095,
+    "co2e_estimated_total_g": 0.0019629499999999998
+  },
+  {
+    "weight_profile": "latency_70",
+    "requests": 200,
+    "w_carbon": 0.2,
+    "w_latency": 0.7,
+    "w_errors": 0.1,
+    "w_cost": 0.0,
+    "carbon_exposure_mean_g_per_kwh": 431.61935470775,
+    "co2e_estimated_total_g": 0.00194189
+  }
+]
