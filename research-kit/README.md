@@ -35,7 +35,7 @@ Generated output includes:
 `requests.csv` now includes explainability fields:
 
 - `request_region` and `selected_region`
-- `route_relation` (`local` or `cross-region`) and `cross_region_reroute` (`true`/`false`)
+- `cross_region_reroute` (`true`/`false`)
 - `selected_carbon_intensity_g_per_kwh`
 - `zone_filter_reasons` (per-zone eligibility/constraint reason, e.g. `added-latency>50`, `share-cap`, `eligible`)
 - `carbon_saved_vs_worst_g_per_kwh`
@@ -159,6 +159,17 @@ Expected outputs:
 
 Failure/operational evidence is captured by scenario `carbon_first_provider_timeout` in `summary.*`.
 Use this row to demonstrate timeout/fallback behavior and service stability under degraded carbon-signal conditions.
+
+Default comparative scenario order in `summary.*`:
+
+1. `carbon_first`
+2. `balanced`
+3. `latency_first`
+4. `carbon_first_provider_timeout` (when `ENABLE_FAILURE_SCENARIO=1`)
+5. `explicit_cross_region_to_green` (when fixture has a clear greener region)
+6. `baseline_no_carbon_strict_local`
+7. `baseline_no_carbon_latency_first`
+8. `baseline_no_carbon_balanced`
 
 Fairness/user-impact evidence is captured in reroute columns:
 

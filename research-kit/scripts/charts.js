@@ -306,9 +306,9 @@ function buildHtml(payload) {
       const g = svg.append("g").attr("transform", "translate(" + m.l + "," + m.t + ")");
 
       const counts = d3.rollup(
-        requests.filter(r => r.selected_zone_region),
+        requests.filter(r => r.selected_region),
         v => v.length,
-        d => d.selected_zone_region
+        d => d.selected_region
       );
       const data = Array.from(counts, ([region, count]) => ({ region, count }))
         .sort((a, b) => d3.descending(a.count, b.count));

@@ -28,15 +28,16 @@ Region context for experiments is provided via `x-user-region` request header.
 - `USER_REGION_INPUT_MODE=mock-fixed-west`
 - `USER_REGION_INPUT_MODE=mock-random`
 
-The workflow executes:
+The workflow executes in this order:
 
-1. Baseline with carbon disabled + balanced policy.
-2. Baseline with carbon disabled + latency-first policy.
-3. Baseline with carbon disabled + strict-local class.
-4. Latency-first (carbon enabled).
-5. Carbon-first.
-6. Balanced.
-7. Provider-timeout robustness scenario (`carbon_first_provider_timeout`) when enabled.
+1. `carbon_first`
+2. `balanced`
+3. `latency_first`
+4. `carbon_first_provider_timeout` (enabled when `ENABLE_FAILURE_SCENARIO=1`)
+5. `explicit_cross_region_to_green` (enabled when fixture indicates a clear greener region)
+6. `baseline_no_carbon_strict_local`
+7. `baseline_no_carbon_latency_first`
+8. `baseline_no_carbon_balanced`
 
 Measure:
 
@@ -120,4 +121,4 @@ Outputs:
 
 Use a statement such as:
 
-"All scripts, configs, and traces required to reproduce the reported experiments are available in `research-kit/` in this repository. Generated result artifacts (summary CSV/JSON/Markdown and per-scenario metrics dumps) are archived with the submission supplementary material."
+"All scripts, configs, and traces required to reproduce the reported experiments are available in `research-kit/` in this repository. Generated result artifacts include summary CSV/JSON/Markdown outputs, per-request CSV, and per-scenario Prometheus metrics dumps."
