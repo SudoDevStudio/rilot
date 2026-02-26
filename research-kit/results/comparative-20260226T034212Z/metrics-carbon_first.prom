@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="us-east"} 12
+carbon_safe_calls_total{route="/",zone="us-east"} 0
+carbon_safe_call_ratio{route="/",zone="us-east"} 0.00000000
+errors_total{route="/",zone="us-east"} 0
+carbon_intensity_exposure_total{route="/",zone="us-east"} 5567.63894517
+co2e_estimated_total{route="/",zone="us-east"} 0.00011172
+energy_joules_estimated_total{route="/",zone="us-east"} 0.86685488
+latency_ms_bucket{route="/",zone="us-east",le="25"} 7
+latency_ms_bucket{route="/",zone="us-east",le="50"} 12
+latency_ms_bucket{route="/",zone="us-east",le="100"} 12
+latency_ms_bucket{route="/",zone="us-east",le="250"} 12
+latency_ms_bucket{route="/",zone="us-east",le="500"} 12
+latency_ms_bucket{route="/",zone="us-east",le="1000"} 12
+latency_ms_bucket{route="/",zone="us-east",le="2000"} 12
+requests_total{route="/",zone="us-west"} 288
+carbon_safe_calls_total{route="/",zone="us-west"} 2
+carbon_safe_call_ratio{route="/",zone="us-west"} 0.00694444
+errors_total{route="/",zone="us-west"} 4
+carbon_intensity_exposure_total{route="/",zone="us-west"} 93187.11466153
+co2e_estimated_total{route="/",zone="us-west"} 0.00335596
+energy_joules_estimated_total{route="/",zone="us-west"} 37.33950279
+latency_ms_bucket{route="/",zone="us-west",le="25"} 0
+latency_ms_bucket{route="/",zone="us-west",le="50"} 279
+latency_ms_bucket{route="/",zone="us-west",le="100"} 288
+latency_ms_bucket{route="/",zone="us-west",le="250"} 288
+latency_ms_bucket{route="/",zone="us-west",le="500"} 288
+latency_ms_bucket{route="/",zone="us-west",le="1000"} 288
+latency_ms_bucket{route="/",zone="us-west",le="2000"} 288
+carbon_intensity_g_per_kwh{zone="us-east"} 463.969912
+carbon_intensity_g_per_kwh{zone="us-west"} 323.813000
