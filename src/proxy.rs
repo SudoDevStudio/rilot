@@ -24,6 +24,13 @@ static SELECTED_ZONE_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-selected-zone"));
 static SELECTED_CARBON_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-selected-carbon-intensity"));
+static ZONE_CARBON_SNAPSHOT_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-zone-carbon-intensity-g-per-kwh"));
+static ELIGIBLE_ZONE_CARBON_SNAPSHOT_HEADER: Lazy<HeaderName> = Lazy::new(|| {
+    HeaderName::from_static("x-rilot-eligible-zone-carbon-intensity-g-per-kwh")
+});
+static ZONE_FILTER_REASONS_HEADER: Lazy<HeaderName> =
+    Lazy::new(|| HeaderName::from_static("x-rilot-zone-filter-reasons"));
 static DECISION_REASON_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-decision-reason"));
 static CARBON_SAVED_HEADER: Lazy<HeaderName> =
@@ -129,6 +136,9 @@ struct ZoneScore {
     zone: ZoneCandidate,
     score: f64,
     carbon_g_per_kwh: Option<f64>,
+    zone_carbon_intensity_g_per_kwh: String,
+    eligible_zone_carbon_intensity_g_per_kwh: String,
+    zone_filter_reasons: String,
     carbon_saved_vs_worst_g_per_kwh: f64,
     carbon_saved_vs_worst_percent: f64,
     latency_ms: f64,
@@ -304,6 +314,9 @@ async fn handle_request(
     let (
         carbon_cache_ttl_left_secs,
         selected_carbon,
+        zone_carbon_snapshot,
+        eligible_zone_carbon_snapshot,
+        zone_filter_reasons,
         selected_carbon_saved,
         selected_carbon_saved_percent,
         selected_reason,
@@ -317,6 +330,18 @@ async fn handle_request(
                 cache_ttl_left_secs(&state, &selected_zone_name)
             };
             let carbon = decision.as_ref().and_then(|d| d.carbon_g_per_kwh);
+            let zone_carbon_snapshot = decision
+                .as_ref()
+                .map(|d| d.zone_carbon_intensity_g_per_kwh.clone())
+                .unwrap_or_default();
+            let eligible_zone_carbon_snapshot = decision
+                .as_ref()
+                .map(|d| d.eligible_zone_carbon_intensity_g_per_kwh.clone())
+                .unwrap_or_default();
+            let zone_filter_reasons = decision
+                .as_ref()
+                .map(|d| d.zone_filter_reasons.clone())
+                .unwrap_or_default();
             let carbon_saved = decision
                 .as_ref()
                 .map(|d| d.carbon_saved_vs_worst_g_per_kwh)
@@ -335,9 +360,27 @@ async fn handle_request(
                         "fallback-lowest-latency".to_string()
                     }
                 });
-            (ttl_left, carbon, carbon_saved, carbon_saved_percent, reason)
+            (
+                ttl_left,
+                carbon,
+                zone_carbon_snapshot,
+                eligible_zone_carbon_snapshot,
+                zone_filter_reasons,
+                carbon_saved,
+                carbon_saved_percent,
+                reason,
+            )
         } else {
-            (None, None, 0.0, 0.0, String::new())
+            (
+                None,
+                None,
+                String::new(),
+                String::new(),
+                String::new(),
+                0.0,
+                0.0,
+                String::new(),
+            )
         };
 
     if let Some(d) = &decision {
@@ -460,6 +503,24 @@ async fn handle_request(
                         res.headers_mut().insert(SELECTED_CARBON_HEADER.clone(), value);
                     }
                 }
+                if !zone_carbon_snapshot.is_empty() {
+                    if let Ok(value) = HeaderValue::from_str(&zone_carbon_snapshot) {
+                        res.headers_mut()
+                            .insert(ZONE_CARBON_SNAPSHOT_HEADER.clone(), value);
+                    }
+                }
+                if !eligible_zone_carbon_snapshot.is_empty() {
+                    if let Ok(value) = HeaderValue::from_str(&eligible_zone_carbon_snapshot) {
+                        res.headers_mut()
+                            .insert(ELIGIBLE_ZONE_CARBON_SNAPSHOT_HEADER.clone(), value);
+                    }
+                }
+                if !zone_filter_reasons.is_empty() {
+                    if let Ok(value) = HeaderValue::from_str(&zone_filter_reasons) {
+                        res.headers_mut()
+                            .insert(ZONE_FILTER_REASONS_HEADER.clone(), value);
+                    }
+                }
                 if let Ok(value) = HeaderValue::from_str(&selected_reason) {
                     res.headers_mut().insert(DECISION_REASON_HEADER.clone(), value);
                 }
@@ -567,10 +628,15 @@ fn choose_zone(
     }
 
     let user_region = header_or_none(headers, "x-user-region").unwrap_or_default();
+    let cross_region_penalty_ms = proxy
+        .policy
+        .constraints
+        .cross_region_rtt_penalty_ms
+        .unwrap_or(CROSS_REGION_RTT_PENALTY_MS);
     let preselected = preselect_candidates(&zones, &proxy.policy.constraints, &user_region);
     let best_latency = preselected
         .iter()
-        .map(|z| estimate_latency_ms(&user_region, z))
+        .map(|z| estimate_latency_ms(&user_region, z, cross_region_penalty_ms))
         .fold(f64::INFINITY, |acc, v| acc.min(v))
         .max(0.0);
 
@@ -583,11 +649,19 @@ fn choose_zone(
 
     for zone in preselected {
         let signal = get_signal_nonblocking(&zone.name, carbon_cfg, state);
-        let latency_ms = estimate_latency_ms(&user_region, &zone);
+        let latency_ms = estimate_latency_ms(&user_region, &zone, cross_region_penalty_ms);
         let error_rate = current_error_rate(state, &zone.name);
         let cost = zone.cost_weight;
         let mut filtered_out_reason =
-            apply_constraints(&proxy.policy.constraints, &zone, latency_ms, error_rate, best_latency, state);
+            apply_constraints(
+                &proxy.policy.constraints,
+                &zone,
+                latency_ms,
+                error_rate,
+                best_latency,
+                &proxy.rule.path,
+                state,
+            );
 
         let chosen_carbon = if classified.carbon_cursor_enabled
             && classified.forecasting_enabled
@@ -621,6 +695,9 @@ fn choose_zone(
             zone,
             score: 0.0,
             carbon_g_per_kwh: chosen_carbon,
+            zone_carbon_intensity_g_per_kwh: String::new(),
+            eligible_zone_carbon_intensity_g_per_kwh: String::new(),
+            zone_filter_reasons: String::new(),
             carbon_saved_vs_worst_g_per_kwh: 0.0,
             carbon_saved_vs_worst_percent: 0.0,
             latency_ms,
@@ -643,6 +720,57 @@ fn choose_zone(
         };
     }
 
+    let mut snapshot_scores = scores.clone();
+    snapshot_scores.sort_by(|a, b| {
+        let a_carbon = a.carbon_g_per_kwh.unwrap_or(f64::INFINITY);
+        let b_carbon = b.carbon_g_per_kwh.unwrap_or(f64::INFINITY);
+        a_carbon
+            .total_cmp(&b_carbon)
+            .then_with(|| a.zone.order.cmp(&b.zone.order))
+    });
+    let zone_snapshot = snapshot_scores
+        .iter()
+        .map(|s| {
+            let carbon = s
+                .carbon_g_per_kwh
+                .map(|v| format!("{:.3}", v))
+                .unwrap_or_else(|| "na".to_string());
+            format!("{}:{}", s.zone.name, carbon)
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    let eligible_zone_snapshot = snapshot_scores
+        .iter()
+        .filter(|s| {
+            s.filtered_out_reason.is_none()
+                || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
+        })
+        .map(|s| {
+            let carbon = s
+                .carbon_g_per_kwh
+                .map(|v| format!("{:.3}", v))
+                .unwrap_or_else(|| "na".to_string());
+            format!("{}:{}", s.zone.name, carbon)
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    let zone_filter_reasons_snapshot = snapshot_scores
+        .iter()
+        .map(|s| {
+            let reason = s
+                .filtered_out_reason
+                .clone()
+                .unwrap_or_else(|| "eligible".to_string());
+            format!("{}:{}", s.zone.name, reason)
+        })
+        .collect::<Vec<_>>()
+        .join(";");
+    for score in &mut scores {
+        score.zone_carbon_intensity_g_per_kwh = zone_snapshot.clone();
+        score.eligible_zone_carbon_intensity_g_per_kwh = eligible_zone_snapshot.clone();
+        score.zone_filter_reasons = zone_filter_reasons_snapshot.clone();
+    }
+
     if !classified.carbon_cursor_enabled || !has_any_carbon {
         return lowest_latency_with_hysteresis(proxy, scores, state);
     }
@@ -661,7 +789,7 @@ fn choose_zone(
         .iter()
         .filter_map(|s| s.carbon_g_per_kwh)
         .collect();
-    if !carbon_values.is_empty() {
+    if carbon_values.len() >= 2 {
         let first = carbon_values[0];
         let is_full_carbon_tie = carbon_values
             .iter()
@@ -697,13 +825,24 @@ fn choose_zone(
             + (mode_weights.w_cost * n_cost);
     }
 
+    let all_scores = scores.clone();
     let mut eligible: Vec<ZoneScore> = scores
-        .into_iter()
+        .iter()
+        .cloned()
         .filter(|s| {
             s.filtered_out_reason.is_none()
                 || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
         })
         .collect();
+    if eligible.is_empty() && proxy.policy.constraints.max_request_share_percent.is_some() {
+        let mut relaxed = all_scores;
+        for s in &mut relaxed {
+            if s.filtered_out_reason.as_deref() == Some("share-cap") {
+                s.filtered_out_reason = Some("share-cap-relaxed-fallback".to_string());
+            }
+        }
+        eligible = relaxed;
+    }
     eligible.sort_by(|a, b| {
         a.score
             .partial_cmp(&b.score)
@@ -794,6 +933,7 @@ fn apply_constraints(
     latency_ms: f64,
     error_rate: f64,
     best_latency_ms: f64,
+    route: &str,
     state: &AppState,
 ) -> Option<String> {
     if let Some(max_added) = constraints.max_added_latency_ms {
@@ -817,7 +957,34 @@ fn apply_constraints(
             return Some(format!("capacity>{}", limit));
         }
     }
+    if let Some(share_cap_percent) = constraints.max_request_share_percent {
+        let cap = share_cap_percent.clamp(0.0, 100.0);
+        let current_share = current_route_zone_share_percent(state, route, &zone.name);
+        if current_share >= cap {
+            return Some("share-cap".to_string());
+        }
+    }
     None
+}
+
+fn current_route_zone_share_percent(state: &AppState, route: &str, zone: &str) -> f64 {
+    let s = state.inner.read().expect("state lock poisoned");
+    let total_requests: u64 = s
+        .metrics
+        .route_zone
+        .iter()
+        .filter_map(|((r, _), m)| if r == route { Some(m.requests_total) } else { None })
+        .sum();
+    if total_requests == 0 {
+        return 0.0;
+    }
+    let zone_requests = s
+        .metrics
+        .route_zone
+        .get(&(route.to_string(), zone.to_string()))
+        .map(|m| m.requests_total)
+        .unwrap_or(0);
+    (zone_requests as f64 / total_requests as f64) * 100.0
 }
 
 fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &AppState) -> ZoneScore {
@@ -835,6 +1002,10 @@ fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &A
                     zone: existing,
                     score: last.score,
                     carbon_g_per_kwh: candidate.carbon_g_per_kwh,
+                    zone_carbon_intensity_g_per_kwh: candidate.zone_carbon_intensity_g_per_kwh,
+                    eligible_zone_carbon_intensity_g_per_kwh: candidate
+                        .eligible_zone_carbon_intensity_g_per_kwh,
+                    zone_filter_reasons: candidate.zone_filter_reasons,
                     carbon_saved_vs_worst_g_per_kwh: candidate.carbon_saved_vs_worst_g_per_kwh,
                     carbon_saved_vs_worst_percent: candidate.carbon_saved_vs_worst_percent,
                     latency_ms: candidate.latency_ms,
@@ -886,11 +1057,11 @@ fn resolve_zones(proxy: &config::ProxyConfig) -> Vec<ZoneCandidate> {
     }]
 }
 
-fn estimate_latency_ms(user_region: &str, zone: &ZoneCandidate) -> f64 {
+fn estimate_latency_ms(user_region: &str, zone: &ZoneCandidate, cross_region_penalty_ms: f64) -> f64 {
     if user_region.is_empty() || user_region == zone.region {
         zone.base_rtt_ms
     } else {
-        zone.base_rtt_ms + CROSS_REGION_RTT_PENALTY_MS
+        zone.base_rtt_ms + cross_region_penalty_ms
     }
 }
 

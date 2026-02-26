@@ -69,6 +69,7 @@
         "constraints": {
           "max_candidates": 8,
           "zone_allowlist": [],
+          "cross_region_rtt_penalty_ms": 30,
           "max_added_latency_ms": 50,
           "p95_latency_budget_ms": 220,
           "max_error_rate": 0.05

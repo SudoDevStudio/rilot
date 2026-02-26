@@ -5,9 +5,12 @@ This folder provides a reproducible Docker workflow for comparative evaluation o
 ## Components
 
 - `docker-compose.yml`: starts Rilot, two Node.js zone simulators, and Prometheus.
+- `docker-compose.live.yml`: starts Rilot, ten high-consumption zone simulators, and Prometheus.
 - `config.docker.json`: Docker-native routing and policy config.
+- `config.live.json`: 10-zone live-style config with per-zone share cap (`max_request_share_percent`).
 - `prometheus.yml`: scrape config for `/metrics`.
 - `scripts/run_experiment.sh`: comparative evaluation runner (Rilot policy-mode baselines).
+- `scripts/run_live_experiment.sh`: live-profile comparative runner that writes to `result_live/`.
 - `scripts/run_comparative_evaluation.py`: request-level and summary report generator.
 - `carbon-traces/us-grid-sample.csv`: sample trace format.
 - `carbon-traces/electricitymap-latest-sample.json`: ElectricityMap-style local fixture.
@@ -20,6 +23,7 @@ docker compose up --build -d
 ```
 
 Outputs are written to `./results` by default.
+`run_experiment.sh` and `run_live_experiment.sh` now also generate `charts.html` automatically in the latest comparative output folder.
 
 Generated output includes:
 
@@ -30,9 +34,10 @@ Generated output includes:
 
 `requests.csv` now includes explainability fields:
 
-- `request_region`, `routing_input_region`, and `selected_zone_region`
+- `request_region` and `selected_region`
 - `route_relation` (`local` or `cross-region`) and `cross_region_reroute` (`true`/`false`)
 - `selected_carbon_intensity_g_per_kwh`
+- `zone_filter_reasons` (per-zone eligibility/constraint reason, e.g. `added-latency>50`, `share-cap`, `eligible`)
 - `carbon_saved_vs_worst_g_per_kwh`
 - `decision_reason`
 
@@ -75,6 +80,19 @@ REQUESTS_PER_REGION=1000 \
 ./scripts/run_experiment.sh
 ```
 
+Run 10-zone live-style study with high-consuming workloads:
+
+```bash
+./scripts/run_live_experiment.sh
+```
+
+This uses:
+
+- `docker-compose.live.yml`
+- `config.live.json`
+- route `"/heavy?burn_ms=40"` by default
+- output directory `result_live/`
+
 ```bash
 # Live ElectricityMap mode (requires API key)
 CARBON_PROVIDER_OVERRIDE=electricitymap \
@@ -95,6 +113,24 @@ Run weight sensitivity analysis:
 ```bash
 python3 ./scripts/run_weight_sensitivity.py
 ```
+
+Generate an interactive chart dashboard from the latest comparative run:
+
+```bash
+node ./scripts/charts.js
+```
+
+Optional:
+
+```bash
+# Use a specific run folder
+node ./scripts/charts.js --input-dir ./results/comparative-YYYYMMDDTHHMMSSZ
+
+# Use live result base
+node ./scripts/charts.js --results-base ./result_live
+```
+
+This writes `charts.html` into the selected comparative result folder.
 
 ## Interpreting results
 
@@ -136,6 +172,7 @@ Fairness/locality tuning knobs (in `config.docker.json` policy):
 
 - Reduce `w_carbon` and increase `w_latency` for user-facing routes.
 - Set tighter `constraints.max_added_latency_ms` and `constraints.p95_latency_budget_ms`.
+- Set `constraints.max_request_share_percent` to cap per-zone request concentration (for example `20`).
 - Use `route_class=strict-local` for critical locality-sensitive routes.
 - Limit migration scope via `constraints.zone_allowlist` and zone `tags`.
 

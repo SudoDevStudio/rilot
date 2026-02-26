@@ -68,8 +68,10 @@ ElectricityMap fields:
 - `constraints.max_candidates` (usize)
 - `constraints.zone_allowlist` (string[]): zone names, region names, or `tag:<name>` entries.
 - `constraints.max_added_latency_ms` (float)
+- `constraints.cross_region_rtt_penalty_ms` (float): optional model penalty added when `x-user-region` and zone region differ. Default is `40` ms if unset.
 - `constraints.p95_latency_budget_ms` (float)
 - `constraints.max_error_rate` (float 0..1)
+- `constraints.max_request_share_percent` (float 0..100): soft cap on historical per-route traffic share for a zone (e.g. `20` means no zone should exceed 20% unless cap-relax fallback is needed).
 
 ### Stability / safety
 

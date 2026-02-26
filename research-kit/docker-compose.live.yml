@@ -1,0 +1,120 @@
+services:
+  rilot:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    container_name: rilot
+    environment:
+      RILOT_HOST: 0.0.0.0
+      RILOT_PORT: 8080
+      RUST_LOG: info
+      RILOT_ENV: production
+      RILOT_EXPOSE_RESEARCH_HEADERS: "true"
+    volumes:
+      - ./config.live.json:/app/config.json:ro
+      - ./carbon-traces:/app/carbon-traces:ro
+    ports:
+      - "${RILOT_HOST_PORT:-8080}:8080"
+    depends_on:
+      - zone-01
+      - zone-02
+      - zone-03
+      - zone-04
+      - zone-05
+      - zone-06
+      - zone-07
+      - zone-08
+      - zone-09
+      - zone-10
+
+  zone-01:
+    image: node:20-alpine
+    container_name: zone-01
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-01", REGION: "us-east", PORT: "5701", BASE_DELAY_MS: "16", JITTER_MS: "6", ERROR_RATE: "0.02", ENERGY_PER_REQUEST_J: "14.5", CPU_BURN_MS: "35" }
+
+  zone-02:
+    image: node:20-alpine
+    container_name: zone-02
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-02", REGION: "us-east", PORT: "5702", BASE_DELAY_MS: "18", JITTER_MS: "8", ERROR_RATE: "0.02", ENERGY_PER_REQUEST_J: "13.8", CPU_BURN_MS: "32" }
+
+  zone-03:
+    image: node:20-alpine
+    container_name: zone-03
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-03", REGION: "us-central", PORT: "5703", BASE_DELAY_MS: "22", JITTER_MS: "7", ERROR_RATE: "0.015", ENERGY_PER_REQUEST_J: "12.4", CPU_BURN_MS: "30" }
+
+  zone-04:
+    image: node:20-alpine
+    container_name: zone-04
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-04", REGION: "us-central", PORT: "5704", BASE_DELAY_MS: "24", JITTER_MS: "9", ERROR_RATE: "0.015", ENERGY_PER_REQUEST_J: "11.9", CPU_BURN_MS: "28" }
+
+  zone-05:
+    image: node:20-alpine
+    container_name: zone-05
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-05", REGION: "us-west", PORT: "5705", BASE_DELAY_MS: "30", JITTER_MS: "10", ERROR_RATE: "0.01", ENERGY_PER_REQUEST_J: "11.1", CPU_BURN_MS: "26" }
+
+  zone-06:
+    image: node:20-alpine
+    container_name: zone-06
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-06", REGION: "us-west", PORT: "5706", BASE_DELAY_MS: "34", JITTER_MS: "10", ERROR_RATE: "0.01", ENERGY_PER_REQUEST_J: "10.7", CPU_BURN_MS: "24" }
+
+  zone-07:
+    image: node:20-alpine
+    container_name: zone-07
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-07", REGION: "us-east", PORT: "5707", BASE_DELAY_MS: "20", JITTER_MS: "7", ERROR_RATE: "0.015", ENERGY_PER_REQUEST_J: "12.9", CPU_BURN_MS: "29" }
+
+  zone-08:
+    image: node:20-alpine
+    container_name: zone-08
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-08", REGION: "us-central", PORT: "5708", BASE_DELAY_MS: "26", JITTER_MS: "8", ERROR_RATE: "0.015", ENERGY_PER_REQUEST_J: "11.8", CPU_BURN_MS: "27" }
+
+  zone-09:
+    image: node:20-alpine
+    container_name: zone-09
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-09", REGION: "us-west", PORT: "5709", BASE_DELAY_MS: "32", JITTER_MS: "9", ERROR_RATE: "0.01", ENERGY_PER_REQUEST_J: "10.9", CPU_BURN_MS: "25" }
+
+  zone-10:
+    image: node:20-alpine
+    container_name: zone-10
+    working_dir: /sim
+    volumes: [ "../examples/node-apps:/sim:ro" ]
+    command: [ "node", "/sim/region-zone-app.js" ]
+    environment: { ZONE_NAME: "zone-10", REGION: "us-east", PORT: "5710", BASE_DELAY_MS: "18", JITTER_MS: "7", ERROR_RATE: "0.02", ENERGY_PER_REQUEST_J: "13.2", CPU_BURN_MS: "31" }
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: rilot-prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - rilot

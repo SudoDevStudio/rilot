@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="us-east"} 150
+carbon_safe_calls_total{route="/",zone="us-east"} 0
+carbon_safe_call_ratio{route="/",zone="us-east"} 0.00000000
+errors_total{route="/",zone="us-east"} 0
+carbon_intensity_exposure_total{route="/",zone="us-east"} 68424.91171335
+co2e_estimated_total{route="/",zone="us-east"} 0.00156396
+energy_joules_estimated_total{route="/",zone="us-east"} 12.34178401
+latency_ms_bucket{route="/",zone="us-east",le="25"} 42
+latency_ms_bucket{route="/",zone="us-east",le="50"} 150
+latency_ms_bucket{route="/",zone="us-east",le="100"} 150
+latency_ms_bucket{route="/",zone="us-east",le="250"} 150
+latency_ms_bucket{route="/",zone="us-east",le="500"} 150
+latency_ms_bucket{route="/",zone="us-east",le="1000"} 150
+latency_ms_bucket{route="/",zone="us-east",le="2000"} 150
+requests_total{route="/",zone="us-west"} 150
+carbon_safe_calls_total{route="/",zone="us-west"} 1
+carbon_safe_call_ratio{route="/",zone="us-west"} 0.00666667
+errors_total{route="/",zone="us-west"} 5
+carbon_intensity_exposure_total{route="/",zone="us-west"} 47753.49689090
+co2e_estimated_total{route="/",zone="us-west"} 0.00171059
+energy_joules_estimated_total{route="/",zone="us-west"} 19.34421029
+latency_ms_bucket{route="/",zone="us-west",le="25"} 0
+latency_ms_bucket{route="/",zone="us-west",le="50"} 143
+latency_ms_bucket{route="/",zone="us-west",le="100"} 150
+latency_ms_bucket{route="/",zone="us-west",le="250"} 150
+latency_ms_bucket{route="/",zone="us-west",le="500"} 150
+latency_ms_bucket{route="/",zone="us-west",le="1000"} 150
+latency_ms_bucket{route="/",zone="us-west",le="2000"} 150
+carbon_intensity_g_per_kwh{zone="us-east"} 456.341689
+carbon_intensity_g_per_kwh{zone="us-west"} 318.884124

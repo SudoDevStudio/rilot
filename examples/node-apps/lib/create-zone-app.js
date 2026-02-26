@@ -10,6 +10,16 @@ function randomInt(max) {
   return Math.floor(Math.random() * max);
 }
 
+function burnCpu(ms) {
+  if (!ms || ms <= 0) {
+    return;
+  }
+  const end = Date.now() + ms;
+  while (Date.now() < end) {
+    Math.sqrt(Math.random() * 1000);
+  }
+}
+
 function createZoneServer(opts) {
   const zone = opts.zone;
   const region = opts.region;
@@ -18,6 +28,7 @@ function createZoneServer(opts) {
   const jitterMs = opts.jitterMs;
   const errorRate = opts.errorRate;
   const energyPerRequestJ = opts.energyPerRequestJ;
+  const cpuBurnMs = opts.cpuBurnMs || 0;
 
   function sendJson(res, status, body) {
     const payload = JSON.stringify(body);
@@ -33,6 +44,14 @@ function createZoneServer(opts) {
   const server = http.createServer(async (req, res) => {
     const start = Date.now();
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const burnMsFromQuery = Number(url.searchParams.get('burn_ms') || 0);
+    const requestedBurnMs = Number.isFinite(burnMsFromQuery) ? burnMsFromQuery : 0;
+    const shouldBurn = url.pathname === '/heavy' || cpuBurnMs > 0 || requestedBurnMs > 0;
+    const finalBurnMs = Math.max(cpuBurnMs, requestedBurnMs);
+    if (shouldBurn && finalBurnMs > 0) {
+      burnCpu(finalBurnMs);
+    }
+
     const delay = baseDelayMs + (jitterMs > 0 ? randomInt(jitterMs + 1) : 0);
     if (delay > 0) {
       await sleep(delay);
@@ -71,6 +90,7 @@ function createZoneServer(opts) {
       query: Object.fromEntries(url.searchParams.entries()),
       simulated_delay_ms: delay,
       observed_handler_ms: elapsed,
+      cpu_burn_ms: finalBurnMs,
       energy_joules_hint: energyPerRequestJ,
       timestamp_utc: now,
       headers: req.headers,
@@ -87,6 +107,7 @@ function createZoneServer(opts) {
         base_delay_ms: baseDelayMs,
         jitter_ms: jitterMs,
         error_rate: errorRate,
+        cpu_burn_ms: cpuBurnMs,
         energy_per_request_j: energyPerRequestJ,
       })
     );

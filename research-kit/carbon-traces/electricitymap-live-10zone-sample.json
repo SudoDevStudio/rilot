@@ -1,0 +1,18 @@
+{
+  "testNotes": {
+    "scenario": "10-zone-live-like-profile",
+    "expectedBehavior": "with max_request_share_percent=20, no single zone should dominate all requests"
+  },
+  "zones": {
+    "zone-01": { "carbonIntensity": 480, "carbonIntensityForecast": 470 },
+    "zone-02": { "carbonIntensity": 460, "carbonIntensityForecast": 445 },
+    "zone-03": { "carbonIntensity": 430, "carbonIntensityForecast": 420 },
+    "zone-04": { "carbonIntensity": 410, "carbonIntensityForecast": 395 },
+    "zone-05": { "carbonIntensity": 390, "carbonIntensityForecast": 380 },
+    "zone-06": { "carbonIntensity": 360, "carbonIntensityForecast": 350 },
+    "zone-07": { "carbonIntensity": 340, "carbonIntensityForecast": 330 },
+    "zone-08": { "carbonIntensity": 320, "carbonIntensityForecast": 310 },
+    "zone-09": { "carbonIntensity": 300, "carbonIntensityForecast": 290 },
+    "zone-10": { "carbonIntensity": 280, "carbonIntensityForecast": 270 }
+  }
+}

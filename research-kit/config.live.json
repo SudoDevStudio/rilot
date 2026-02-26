@@ -1,0 +1,99 @@
+{
+  "metrics": {
+    "enabled": true,
+    "path": "/metrics",
+    "decision_log_sample_rate": 0.01,
+    "rollup_interval_secs": 60
+  },
+  "carbon": {
+    "provider": "electricitymap-local",
+    "provider_timeout_ms": 100,
+    "electricitymap_base_url": "https://api.electricitymap.org",
+    "electricitymap_api_key": null,
+    "electricitymap_api_token_header": "auth-token",
+    "electricitymap_zone_map": {},
+    "electricitymap_disable_estimations": false,
+    "electricitymap_local_fixture": "./carbon-traces/electricitymap-live-10zone-sample.json",
+    "default_carbon_intensity": 420,
+    "carbon_safe_threshold_g_per_kwh": 100,
+    "zone_current": {
+      "zone-01": 480,
+      "zone-02": 460,
+      "zone-03": 430,
+      "zone-04": 410,
+      "zone-05": 390,
+      "zone-06": 360,
+      "zone-07": 340,
+      "zone-08": 320,
+      "zone-09": 300,
+      "zone-10": 280
+    },
+    "zone_forecast_next": {
+      "zone-01": 470,
+      "zone-02": 445,
+      "zone-03": 420,
+      "zone-04": 395,
+      "zone-05": 380,
+      "zone-06": 350,
+      "zone-07": 330,
+      "zone-08": 310,
+      "zone-09": 290,
+      "zone-10": 270
+    },
+    "electricitymap_local_live_reload": false,
+    "cache_ttl_seconds": 10
+  },
+  "proxies": [
+    {
+      "app_name": "live-router-demo",
+      "app_uri": "http://zone-01:5701",
+      "rewrite": "none",
+      "rule": {
+        "path": "/",
+        "type": "contain"
+      },
+      "zones": [
+        { "name": "zone-01", "region": "us-east", "app_uri": "http://zone-01:5701", "base_rtt_ms": 18, "cost_weight": 0.30, "max_in_flight": 220, "tags": ["live", "east"] },
+        { "name": "zone-02", "region": "us-east", "app_uri": "http://zone-02:5702", "base_rtt_ms": 20, "cost_weight": 0.28, "max_in_flight": 220, "tags": ["live", "east"] },
+        { "name": "zone-03", "region": "us-central", "app_uri": "http://zone-03:5703", "base_rtt_ms": 24, "cost_weight": 0.27, "max_in_flight": 220, "tags": ["live", "central"] },
+        { "name": "zone-04", "region": "us-central", "app_uri": "http://zone-04:5704", "base_rtt_ms": 26, "cost_weight": 0.26, "max_in_flight": 220, "tags": ["live", "central"] },
+        { "name": "zone-05", "region": "us-west", "app_uri": "http://zone-05:5705", "base_rtt_ms": 30, "cost_weight": 0.24, "max_in_flight": 220, "tags": ["live", "west"] },
+        { "name": "zone-06", "region": "us-west", "app_uri": "http://zone-06:5706", "base_rtt_ms": 34, "cost_weight": 0.23, "max_in_flight": 220, "tags": ["live", "west"] },
+        { "name": "zone-07", "region": "us-east", "app_uri": "http://zone-07:5707", "base_rtt_ms": 22, "cost_weight": 0.22, "max_in_flight": 220, "tags": ["live", "east"] },
+        { "name": "zone-08", "region": "us-central", "app_uri": "http://zone-08:5708", "base_rtt_ms": 28, "cost_weight": 0.22, "max_in_flight": 220, "tags": ["live", "central"] },
+        { "name": "zone-09", "region": "us-west", "app_uri": "http://zone-09:5709", "base_rtt_ms": 32, "cost_weight": 0.21, "max_in_flight": 220, "tags": ["live", "west"] },
+        { "name": "zone-10", "region": "us-east", "app_uri": "http://zone-10:5710", "base_rtt_ms": 19, "cost_weight": 0.20, "max_in_flight": 220, "tags": ["live", "east"] }
+      ],
+      "policy": {
+        "carbon_cursor_enabled": true,
+        "route_class": "flexible",
+        "priority_mode": "balanced",
+        "constraints": {
+          "max_candidates": 10,
+          "zone_allowlist": [],
+          "cross_region_rtt_penalty_ms": 40,
+          "max_added_latency_ms": 70,
+          "p95_latency_budget_ms": 260,
+          "max_error_rate": 0.08,
+          "max_request_share_percent": 20
+        },
+        "weights": {
+          "w_carbon": 0.5,
+          "w_latency": 0.3,
+          "w_errors": 0.2,
+          "w_cost": 0.0
+        },
+        "forecasting_enabled": true,
+        "time_shift_enabled": true,
+        "forecast_window_minutes": 30,
+        "forecast_min_improvement_ratio": 0.1,
+        "max_defer_seconds": 0,
+        "fail_safe_lowest_latency": true,
+        "hysteresis_delta": 0.02,
+        "min_switch_interval_secs": 5,
+        "plugin_enabled": false,
+        "plugin_timeout_ms": 800
+      }
+    }
+  ]
+}

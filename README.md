@@ -78,6 +78,7 @@ Optional stronger-evidence runs:
 - `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
 - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (provider-timeout robustness)
 - `python3 ./scripts/run_weight_sensitivity.py` (policy weight sensitivity)
+- `node ./scripts/charts.js` (interactive charts from latest comparative run; writes `charts.html`)
 
 ## Core docs
 

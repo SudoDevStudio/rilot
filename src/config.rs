@@ -48,6 +48,10 @@ pub struct PolicyConstraints {
     pub p95_latency_budget_ms: Option<f64>,
     #[serde(default)]
     pub max_error_rate: Option<f64>,
+    #[serde(default)]
+    pub max_request_share_percent: Option<f64>,
+    #[serde(default)]
+    pub cross_region_rtt_penalty_ms: Option<f64>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -187,6 +191,8 @@ impl Default for PolicyConstraints {
             max_added_latency_ms: None,
             p95_latency_budget_ms: None,
             max_error_rate: None,
+            max_request_share_percent: None,
+            cross_region_rtt_penalty_ms: None,
         }
     }
 }

@@ -15,9 +15,12 @@ from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 KIT_DIR = ROOT / "research-kit"
-CONFIG_PATH = KIT_DIR / "config.docker.json"
-RESULTS_BASE = KIT_DIR / "results"
+CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "config.docker.json")
+CONFIG_PATH = KIT_DIR / CONFIG_FILE_NAME
+RESULTS_DIR_NAME = os.environ.get("RESULTS_DIR_NAME", "results")
+RESULTS_BASE = KIT_DIR / RESULTS_DIR_NAME
 ROUTE = os.environ.get("ROUTE", "/")
+ROUTE_METRIC_FILTER = os.environ.get("ROUTE_METRIC_FILTER", "/")
 REQUESTS_PER_REGION = int(os.environ.get("REQUESTS_PER_REGION", "150"))
 RILOT_HOST_PORT = os.environ.get("RILOT_HOST_PORT", "18080")
 RILOT_URL = os.environ.get("RILOT_URL", f"http://127.0.0.1:{RILOT_HOST_PORT}")
@@ -27,17 +30,21 @@ ENABLE_FAILURE_SCENARIO = os.environ.get("ENABLE_FAILURE_SCENARIO", "1") not in 
 CARBON_PROVIDER_OVERRIDE = os.environ.get("CARBON_PROVIDER_OVERRIDE", "").strip()
 ELECTRICITYMAP_FIXTURE_OVERRIDE = os.environ.get("ELECTRICITYMAP_FIXTURE_OVERRIDE", "").strip()
 ELECTRICITYMAP_API_KEY_OVERRIDE = os.environ.get("ELECTRICITYMAP_API_KEY_OVERRIDE", "").strip()
-COMPOSE = ["docker", "compose", "-f", str(KIT_DIR / "docker-compose.yml")]
+COMPOSE_FILE_NAME = os.environ.get("COMPOSE_FILE_NAME", "docker-compose.yml")
+COMPOSE = ["docker", "compose", "-f", str(KIT_DIR / COMPOSE_FILE_NAME)]
 COMPOSE_ENV = os.environ.copy()
 COMPOSE_ENV["RILOT_HOST_PORT"] = RILOT_HOST_PORT
+BACKEND_SERVICES = [
+    s.strip() for s in os.environ.get("BACKEND_SERVICES", "us-east,us-west").split(",") if s.strip()
+]
 
 BASE_MODES = [
-    ("baseline_no_carbon_balanced", {"enabled": False, "priority_mode": "balanced", "route_class": "flexible"}),
-    ("baseline_no_carbon_latency_first", {"enabled": False, "priority_mode": "latency-first", "route_class": "flexible"}),
-    ("baseline_no_carbon_strict_local", {"enabled": False, "priority_mode": "latency-first", "route_class": "strict-local"}),
-    ("latency_first", {"enabled": True, "priority_mode": "latency-first"}),
     ("carbon_first", {"enabled": True, "priority_mode": "carbon-first"}),
     ("balanced", {"enabled": True, "priority_mode": "balanced"}),
+    ("latency_first", {"enabled": True, "priority_mode": "latency-first"}),
+    ("baseline_no_carbon_strict_local", {"enabled": False, "priority_mode": "latency-first", "route_class": "strict-local"}),
+    ("baseline_no_carbon_latency_first", {"enabled": False, "priority_mode": "latency-first", "route_class": "flexible"}),
+    ("baseline_no_carbon_balanced", {"enabled": False, "priority_mode": "balanced", "route_class": "flexible"}),
 ]
 
 
@@ -208,13 +215,28 @@ def percentile(values, p):
     return float(seq[idx])
 
 
-def zone_to_region(zone_name: str) -> str:
+def zone_to_region(zone_name: str, zone_region_map: Optional[dict] = None) -> str:
+    if zone_region_map:
+        mapped = zone_region_map.get(zone_name)
+        if mapped:
+            return mapped
     z = (zone_name or "").lower()
     if "east" in z:
         return "us-east"
     if "west" in z:
         return "us-west"
     return ""
+
+
+def build_zone_region_map(cfg: dict) -> dict:
+    out = {}
+    for proxy in cfg.get("proxies", []):
+        for zone in proxy.get("zones", []):
+            name = str(zone.get("name", "")).strip()
+            region = str(zone.get("region", "")).strip()
+            if name and region:
+                out[name] = region
+    return out
 
 
 def local_vs_selected_relation(request_region: str, selected_zone: str) -> str:
@@ -253,21 +275,60 @@ def load_fixture_expectation():
     }
 
 
-def build_modes():
-    modes = list(BASE_MODES)
-    if ENABLE_FAILURE_SCENARIO:
-        modes.append(
-            (
-                "carbon_first_provider_timeout",
-                {
-                    "enabled": True,
-                    "priority_mode": "carbon-first",
-                    "provider": "slow-mock",
-                    "provider_timeout_ms": 5,
-                    "route_class": "flexible",
-                },
-            )
-        )
+def build_modes(fixture_expectation=None):
+    explicit_cross_region_mode = (
+        "explicit_cross_region_to_green",
+        {
+            "enabled": True,
+            "priority_mode": "carbon-first",
+            "route_class": "flexible",
+            "constraints_override": {
+                "max_added_latency_ms": 1000,
+                "max_error_rate": 1.0,
+                "max_request_share_percent": 100,
+            },
+            "weights_override": {
+                "w_carbon": 1.0,
+                "w_latency": 0.0,
+                "w_errors": 0.0,
+                "w_cost": 0.0,
+            },
+        },
+    )
+    timeout_mode = (
+        "carbon_first_provider_timeout",
+        {
+            "enabled": True,
+            "priority_mode": "carbon-first",
+            "provider": "slow-mock",
+            "provider_timeout_ms": 5,
+            "route_class": "flexible",
+        },
+    )
+    mode_map = {name: cfg for (name, cfg) in BASE_MODES}
+    ordered_names = [
+        "carbon_first",
+        "balanced",
+        "latency_first",
+        "carbon_first_provider_timeout",
+        "explicit_cross_region_to_green",
+        "baseline_no_carbon_strict_local",
+        "baseline_no_carbon_latency_first",
+        "baseline_no_carbon_balanced",
+    ]
+    modes = []
+    for name in ordered_names:
+        if name == "carbon_first_provider_timeout":
+            if ENABLE_FAILURE_SCENARIO:
+                modes.append(timeout_mode)
+            continue
+        if name == "explicit_cross_region_to_green":
+            if fixture_expectation and fixture_expectation.get("expected_cross_direction") not in (None, "none"):
+                modes.append(explicit_cross_region_mode)
+            continue
+        cfg = mode_map.get(name)
+        if cfg is not None:
+            modes.append((name, cfg))
     return modes
 
 
@@ -299,7 +360,13 @@ def apply_carbon_provider_overrides(cfg: dict) -> dict:
     return out
 
 
-def send_requests(base_url: str, scenario: str, out_csv: Path):
+def send_requests(
+    base_url: str,
+    scenario: str,
+    out_csv: Path,
+    zone_region_map: dict,
+    expected_cross_direction: Optional[str] = None,
+):
     latencies = []
     zone_counts = {}
     ok_count = 0
@@ -307,13 +374,16 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
     cross_region_count = 0
     east_to_west_count = 0
     west_to_east_count = 0
+    expected_cross_hits = 0
+    expected_cross_eligible_requests = 0
+    expected_from = ""
+    expected_to = ""
+    if expected_cross_direction and "->" in expected_cross_direction:
+        expected_from, expected_to = [p.strip() for p in expected_cross_direction.split("->", 1)]
     with out_csv.open("a", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        req_counter = 0
         for region in ("us-east", "us-west"):
             for _ in range(1, REQUESTS_PER_REGION + 1):
-                req_counter += 1
-                req_id = f"req-{req_counter:06d}"
                 header_region = region
                 if USER_REGION_INPUT_MODE == "mock-fixed-east":
                     header_region = "us-east"
@@ -326,7 +396,11 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                 start = time.perf_counter()
                 code = 0
                 zone = ""
+                zone_region_from_payload = ""
                 selected_carbon = ""
+                zone_carbon_intensity = ""
+                eligible_zone_carbon_intensity = ""
+                zone_filter_reasons = ""
                 decision_reason = ""
                 carbon_saved_vs_worst = ""
                 carbon_saved_vs_worst_percent = ""
@@ -334,6 +408,15 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         code = resp.status
                         selected_carbon = resp.headers.get("x-rilot-selected-carbon-intensity", "")
+                        zone_carbon_intensity = resp.headers.get(
+                            "x-rilot-zone-carbon-intensity-g-per-kwh", ""
+                        )
+                        eligible_zone_carbon_intensity = resp.headers.get(
+                            "x-rilot-eligible-zone-carbon-intensity-g-per-kwh", ""
+                        )
+                        zone_filter_reasons = resp.headers.get(
+                            "x-rilot-zone-filter-reasons", ""
+                        )
                         decision_reason = resp.headers.get("x-rilot-decision-reason", "")
                         carbon_saved_vs_worst = resp.headers.get("x-rilot-carbon-saved-vs-worst", "")
                         carbon_saved_vs_worst_percent = resp.headers.get(
@@ -343,6 +426,7 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                         try:
                             data = json.loads(body)
                             zone = data.get("zone", "")
+                            zone_region_from_payload = str(data.get("region", "") or "")
                         except Exception:
                             zone = ""
                 except Exception:
@@ -355,8 +439,13 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                     err_count += 1
                 if zone:
                     zone_counts[zone] = zone_counts.get(zone, 0) + 1
-                selected_zone_region = zone_to_region(zone)
+                selected_zone_region = zone_to_region(zone, zone_region_map) or zone_region_from_payload
                 route_relation = local_vs_selected_relation(header_region, zone)
+                if selected_zone_region:
+                    if header_region == selected_zone_region:
+                        route_relation = "local"
+                    else:
+                        route_relation = "cross-region"
                 is_cross_region = route_relation == "cross-region"
                 if is_cross_region:
                     cross_region_count += 1
@@ -364,19 +453,25 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
                         east_to_west_count += 1
                     elif header_region == "us-west" and selected_zone_region == "us-east":
                         west_to_east_count += 1
+                if expected_from and expected_to and header_region == expected_from:
+                    expected_cross_eligible_requests += 1
+                    if is_cross_region and selected_zone_region == expected_to:
+                        expected_cross_hits += 1
+                if scenario.startswith("baseline_no_carbon_"):
+                    carbon_saved_vs_worst = "n/a"
+                    carbon_saved_vs_worst_percent = "n/a"
                 w.writerow([
                     now_iso(),
                     scenario,
-                    req_id,
                     region,
-                    header_region,
                     selected_zone_region,
-                    route_relation,
                     "true" if is_cross_region else "false",
                     f"{latency_ms:.3f}",
                     code,
-                    zone,
                     selected_carbon,
+                    zone_carbon_intensity,
+                    eligible_zone_carbon_intensity,
+                    zone_filter_reasons,
                     carbon_saved_vs_worst,
                     carbon_saved_vs_worst_percent,
                     decision_reason,
@@ -389,6 +484,8 @@ def send_requests(base_url: str, scenario: str, out_csv: Path):
         "cross_region_count": cross_region_count,
         "east_to_west_count": east_to_west_count,
         "west_to_east_count": west_to_east_count,
+        "expected_cross_hits": expected_cross_hits,
+        "expected_cross_eligible_requests": expected_cross_eligible_requests,
     }
 
 
@@ -407,6 +504,14 @@ def apply_mode(cfg: dict, mode_name: str, mode_cfg: dict) -> dict:
         policy["priority_mode"] = mode_cfg["priority_mode"]
         if mode_cfg.get("route_class"):
             policy["route_class"] = mode_cfg["route_class"]
+        if mode_cfg.get("constraints_override"):
+            constraints = policy.get("constraints", {})
+            constraints.update(mode_cfg["constraints_override"])
+            policy["constraints"] = constraints
+        if mode_cfg.get("weights_override"):
+            weights = policy.get("weights", {})
+            weights.update(mode_cfg["weights_override"])
+            policy["weights"] = weights
         proxy["policy"] = policy
     return out
 
@@ -438,16 +543,15 @@ def main():
         w.writerow([
             "timestamp_utc",
             "scenario",
-            "request_id",
             "request_region",
-            "routing_input_region",
-            "selected_zone_region",
-            "route_relation",
+            "selected_region",
             "cross_region_reroute",
             "latency_ms",
             "http_code",
-            "selected_zone",
             "selected_carbon_intensity_g_per_kwh",
+            "zone_carbon_intensity_g_per_kwh",
+            "eligible_zone_carbon_intensity_g_per_kwh",
+            "zone_filter_reasons",
             "carbon_saved_vs_worst_g_per_kwh",
             "carbon_saved_vs_worst_percent",
             "decision_reason",
@@ -457,10 +561,17 @@ def main():
     base_cfg = apply_carbon_provider_overrides(
         apply_carbon_variance_profile(json.loads(original_config))
     )
-    modes = build_modes()
+    zone_region_map = build_zone_region_map(base_cfg)
+    fixture_expectation = load_fixture_expectation()
+    expected_cross_direction = (
+        fixture_expectation.get("expected_cross_direction")
+        if fixture_expectation
+        else None
+    )
+    modes = build_modes(fixture_expectation)
     summaries = []
     try:
-        run(COMPOSE + ["up", "-d", "us-east", "us-west"])
+        run(COMPOSE + ["up", "-d"] + BACKEND_SERVICES)
 
         for mode_name, mode_cfg in modes:
             mode_out = apply_mode(base_cfg, mode_name, mode_cfg)
@@ -472,12 +583,20 @@ def main():
             cpu_start_usec = read_cgroup_cpu_usage_usec()
             mem_peak_start = read_cgroup_memory_peak_bytes()
             start_wall = time.perf_counter()
-            req_stats = send_requests(RILOT_URL, mode_name, per_req_csv)
+            req_stats = send_requests(
+                RILOT_URL,
+                mode_name,
+                per_req_csv,
+                zone_region_map,
+                expected_cross_direction=expected_cross_direction,
+            )
             elapsed_wall = max(time.perf_counter() - start_wall, 0.001)
             cpu_end_usec = read_cgroup_cpu_usage_usec()
             mem_peak_end = read_cgroup_memory_peak_bytes()
             mem_current_end = read_cgroup_memory_current_bytes()
-            metrics_text, req_total, req_by_zone, co2e_total, mean_exposure = collect_rilot_metrics(ROUTE)
+            metrics_text, req_total, req_by_zone, co2e_total, mean_exposure = collect_rilot_metrics(
+                ROUTE_METRIC_FILTER
+            )
             (out_dir / f"metrics-{mode_name}.prom").write_text(metrics_text, encoding="utf-8")
 
             lats = req_stats["latencies"]
@@ -513,6 +632,8 @@ def main():
                 "cross_region_reroutes": req_stats["cross_region_count"],
                 "east_to_west_reroutes": req_stats["east_to_west_count"],
                 "west_to_east_reroutes": req_stats["west_to_east_count"],
+                "expected_cross_hits": req_stats["expected_cross_hits"],
+                "expected_cross_eligible_requests": req_stats["expected_cross_eligible_requests"],
             })
     finally:
         CONFIG_PATH.write_text(original_config, encoding="utf-8")
@@ -549,6 +670,9 @@ def main():
             row["memory_delta_mb_vs_baseline"] = row["memory_mb_sample"] - baseline_mem
         else:
             row["memory_delta_mb_vs_baseline"] = None
+        eligible = row.get("expected_cross_eligible_requests", 0) or 0
+        hits = row.get("expected_cross_hits", 0) or 0
+        row["expected_cross_to_green_rate_percent"] = ((hits / eligible) * 100.0) if eligible > 0 else 0.0
 
     fields = [
         "scenario",
@@ -570,6 +694,9 @@ def main():
         "cross_region_reroutes",
         "east_to_west_reroutes",
         "west_to_east_reroutes",
+        "expected_cross_hits",
+        "expected_cross_eligible_requests",
+        "expected_cross_to_green_rate_percent",
         "carbon_exposure_mean_g_per_kwh",
         "carbon_exposure_saved_g_per_kwh_vs_baseline",
         "carbon_exposure_saved_percent_vs_baseline",
@@ -589,15 +716,20 @@ def main():
         "",
         f"- Generated at: `{now_iso()}`",
         f"- Route: `{ROUTE}`",
+        f"- Metrics route filter: `{ROUTE_METRIC_FILTER}`",
+        f"- Config file: `{CONFIG_FILE_NAME}`",
+        f"- Compose file: `{COMPOSE_FILE_NAME}`",
+        f"- Results dir: `{RESULTS_DIR_NAME}`",
         f"- Requests per region: `{REQUESTS_PER_REGION}`",
+        f"- Backend services: `{','.join(BACKEND_SERVICES)}`",
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
         f"- Carbon variance profile: `{CARBON_VARIANCE_PROFILE}`",
         f"- Carbon provider override: `{CARBON_PROVIDER_OVERRIDE or 'none'}`",
         f"- Failure scenario enabled: `{ENABLE_FAILURE_SCENARIO}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
-        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | cpu % sample | cpu delta % | mem MB sample | mem delta MB | mean exposure g/kWh | exposure saved % | co2e saved % |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | expected cross->green % | cpu % sample | cpu delta % | mem MB sample | mem delta MB | mean exposure g/kWh | exposure saved % | co2e saved % |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for row in summaries:
         cpu = "" if row.get("cpu_percent_sample") is None else f"{row['cpu_percent_sample']:.2f}"
@@ -611,13 +743,13 @@ def main():
             f"| {row['scenario']} | {row['error_rate_percent']:.2f}% | {row['latency_avg_ms']:.2f} | {row['latency_p95_ms']:.2f} | "
             f"{row['latency_p95_delta_ms_vs_baseline']:+.2f} | {row.get('cross_region_reroutes', 0)} | "
             f"{row.get('east_to_west_reroutes', 0)} | {row.get('west_to_east_reroutes', 0)} | "
+            f"{row.get('expected_cross_to_green_rate_percent', 0.0):.2f}% | "
             f"{cpu} | {cpu_delta} | {mem} | {mem_delta} | {row['carbon_exposure_mean_g_per_kwh']:.2f} | "
             f"{row['carbon_exposure_saved_percent_vs_baseline']:+.2f}% | {row['co2e_saved_percent_vs_baseline']:+.2f}% |"
         )
         if top_zone:
             lines.append(f"  - dominant zone: `{top_zone}`; zone split: `{row['zone_counts']}`")
 
-    fixture_expectation = load_fixture_expectation()
     if fixture_expectation:
         lines.extend([
             "",
@@ -626,10 +758,12 @@ def main():
             f"- Expected cross-region direction (carbon-aware modes): `{fixture_expectation['expected_cross_direction']}`",
         ])
         for row in summaries:
-            if row["scenario"] in ("carbon_first", "balanced", "latency_first"):
+            if row["scenario"] in ("carbon_first", "balanced", "latency_first", "explicit_cross_region_to_green"):
                 lines.append(
                     f"- `{row['scenario']}` observed east->west: `{row.get('east_to_west_reroutes', 0)}`, "
-                    f"west->east: `{row.get('west_to_east_reroutes', 0)}`"
+                    f"west->east: `{row.get('west_to_east_reroutes', 0)}`, "
+                    f"expected cross->green rate: `{row.get('expected_cross_to_green_rate_percent', 0.0):.2f}%` "
+                    f"({row.get('expected_cross_hits', 0)}/{row.get('expected_cross_eligible_requests', 0)})"
                 )
     summary_md.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Comparative evaluation results saved to: {out_dir}")

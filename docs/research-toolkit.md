@@ -99,6 +99,9 @@ Outputs:
   - Produces `research-kit/results/sensitivity-<timestamp>/weights-summary.{json,md}`.
 - Long-duration study:
   - `REQUESTS_PER_REGION=1000 ./scripts/run_experiment.sh`
+- 10-zone live-style study with high-consuming requests:
+  - `./scripts/run_live_experiment.sh`
+  - writes outputs under `research-kit/result_live/`
 
 ## Ethical and practical implications
 
