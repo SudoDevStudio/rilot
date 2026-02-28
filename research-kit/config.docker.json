@@ -6,7 +6,7 @@
     "rollup_interval_secs": 60
   },
   "carbon": {
-    "provider": "mock",
+    "provider": "electricitymap-local",
     "provider_timeout_ms": 75,
     "electricitymap_base_url": "https://api.electricitymap.org",
     "electricitymap_api_key": null,
@@ -25,7 +25,7 @@
       "us-west": 290
     },
     "electricitymap_local_live_reload": false,
-    "cache_ttl_seconds": 10
+    "cache_ttl_seconds": 1
   },
   "proxies": [
     {

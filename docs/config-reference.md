@@ -25,6 +25,10 @@ ElectricityMap fields:
 - `carbon.electricitymap_local_fixture` (string|null): path to local JSON fixture for offline testing (`electricitymap-local` mode).
 - `carbon.electricitymap_local_live_reload` (bool): when `true`, local fixture is read every request (no cache). Default `false` uses local TTL cache.
 
+Runtime env toggles (not config-file fields):
+
+- `RILOT_EMULATE_CROSS_REGION_RTT` (bool): when `true`, Rilot adds the configured `cross_region_rtt_penalty_ms` to observed request latency for cross-region selections. Useful for research runs where tail latency must reflect cross-region routing decisions.
+
 - `proxies` (array): route definitions.
 
 ## `proxies[]`

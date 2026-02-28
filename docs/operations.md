@@ -44,6 +44,15 @@ Fixture file example is included at:
 
 - `research-kit/carbon-traces/electricitymap-latest-sample.json`
 
+For dynamic ElectricityMap-compatible testing, run:
+
+```bash
+cd research-kit
+./scripts/run_live_experiment.sh
+```
+
+This starts `scripts/carbon-signal-api.js` and exposes ElectricityMap-compatible `/v3/carbon-intensity/latest` responses locally.
+
 ## Docker run
 
 ```bash
@@ -56,6 +65,21 @@ Endpoints:
 - Proxy: `http://127.0.0.1:8080`
 - Metrics: `http://127.0.0.1:8080/metrics`
 - Prometheus: `http://127.0.0.1:9090`
+
+## Live-profile experiment run
+
+```bash
+cd research-kit
+./scripts/run_live_experiment.sh
+```
+
+Defaults:
+
+- 10-zone profile from `config.live.json` (rewritten to dynamic temp config for the run)
+- dynamic local carbon API range `100..700`
+- provider cache disabled for experiment (`carbon.cache_ttl_seconds=0`)
+- cross-region latency emulation enabled (`RILOT_EMULATE_CROSS_REGION_RTT=true`)
+- stable output folder: `research-kit/result_live/comparative-live/`
 
 ## Health and validation checklist
 

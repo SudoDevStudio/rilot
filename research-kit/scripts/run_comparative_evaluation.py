@@ -15,10 +15,11 @@ from typing import Optional, Tuple
 
 ROOT = Path(__file__).resolve().parents[2]
 KIT_DIR = ROOT / "research-kit"
-CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "config.docker.json")
+CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "config.live.json")
 CONFIG_PATH = KIT_DIR / CONFIG_FILE_NAME
-RESULTS_DIR_NAME = os.environ.get("RESULTS_DIR_NAME", "results")
+RESULTS_DIR_NAME = os.environ.get("RESULTS_DIR_NAME", "result_live")
 RESULTS_BASE = KIT_DIR / RESULTS_DIR_NAME
+CLEAN_RESULTS_BASE = os.environ.get("CLEAN_RESULTS_BASE", "1") not in ("0", "false", "False")
 ROUTE = os.environ.get("ROUTE", "/")
 ROUTE_METRIC_FILTER = os.environ.get("ROUTE_METRIC_FILTER", "/")
 REQUESTS_PER_REGION = int(os.environ.get("REQUESTS_PER_REGION", "150"))
@@ -30,18 +31,61 @@ ENABLE_FAILURE_SCENARIO = os.environ.get("ENABLE_FAILURE_SCENARIO", "1") not in 
 CARBON_PROVIDER_OVERRIDE = os.environ.get("CARBON_PROVIDER_OVERRIDE", "").strip()
 ELECTRICITYMAP_FIXTURE_OVERRIDE = os.environ.get("ELECTRICITYMAP_FIXTURE_OVERRIDE", "").strip()
 ELECTRICITYMAP_API_KEY_OVERRIDE = os.environ.get("ELECTRICITYMAP_API_KEY_OVERRIDE", "").strip()
-COMPOSE_FILE_NAME = os.environ.get("COMPOSE_FILE_NAME", "docker-compose.yml")
+ELECTRICITYMAP_BASE_URL_OVERRIDE = os.environ.get("ELECTRICITYMAP_BASE_URL_OVERRIDE", "").strip()
+CARBON_API_RESET_URL = os.environ.get("CARBON_API_RESET_URL", "").strip()
+COMPOSE_FILE_NAME = os.environ.get("COMPOSE_FILE_NAME", "docker-compose.live.yml")
 COMPOSE = ["docker", "compose", "-f", str(KIT_DIR / COMPOSE_FILE_NAME)]
 COMPOSE_ENV = os.environ.copy()
 COMPOSE_ENV["RILOT_HOST_PORT"] = RILOT_HOST_PORT
+RILOT_BUILD_MODE = os.environ.get("RILOT_BUILD_MODE", "reuse")
+COMPOSE_RETRIES = int(os.environ.get("COMPOSE_RETRIES", "3"))
+COMPOSE_RETRY_DELAY_SECONDS = float(os.environ.get("COMPOSE_RETRY_DELAY_SECONDS", "4"))
 BACKEND_SERVICES = [
-    s.strip() for s in os.environ.get("BACKEND_SERVICES", "us-east,us-west").split(",") if s.strip()
+    s.strip()
+    for s in os.environ.get(
+        "BACKEND_SERVICES",
+        "zone-01,zone-02,zone-03,zone-04,zone-05,zone-06,zone-07,zone-08,zone-09,zone-10",
+    ).split(",")
+    if s.strip()
 ]
 
 BASE_MODES = [
-    ("carbon_first", {"enabled": True, "priority_mode": "carbon-first"}),
+    (
+        "carbon_first",
+        {
+            "enabled": True,
+            "priority_mode": "carbon-first",
+            "constraints_override": {
+                "max_added_latency_ms": 300,
+                "max_request_share_percent": 100,
+                "max_error_rate": 1.0,
+            },
+            "weights_override": {
+                "w_carbon": 1.0,
+                "w_latency": 0.0,
+                "w_errors": 0.0,
+                "w_cost": 0.0,
+            },
+        },
+    ),
     ("balanced", {"enabled": True, "priority_mode": "balanced"}),
-    ("latency_first", {"enabled": True, "priority_mode": "latency-first"}),
+    (
+        "latency_first",
+        {
+            "enabled": True,
+            "priority_mode": "latency-first",
+            "constraints_override": {
+                "max_added_latency_ms": 30,
+                "max_request_share_percent": 100,
+            },
+            "weights_override": {
+                "w_carbon": 0.0,
+                "w_latency": 1.0,
+                "w_errors": 0.0,
+                "w_cost": 0.0,
+            },
+        },
+    ),
     ("baseline_no_carbon_strict_local", {"enabled": False, "priority_mode": "latency-first", "route_class": "strict-local"}),
     ("baseline_no_carbon_latency_first", {"enabled": False, "priority_mode": "latency-first", "route_class": "flexible"}),
     ("baseline_no_carbon_balanced", {"enabled": False, "priority_mode": "balanced", "route_class": "flexible"}),
@@ -63,8 +107,30 @@ def wait_http_ok(url: str, attempts: int = 90, sleep_s: float = 0.5) -> bool:
     return False
 
 
-def run(cmd, cwd=ROOT):
-    subprocess.run(cmd, cwd=str(cwd), check=True, env=COMPOSE_ENV)
+def run(cmd, cwd=ROOT, retries=0, retry_delay_s=2.0):
+    attempts = max(1, retries + 1)
+    last_err = None
+    for i in range(attempts):
+        try:
+            subprocess.run(cmd, cwd=str(cwd), check=True, env=COMPOSE_ENV)
+            return
+        except subprocess.CalledProcessError as e:
+            last_err = e
+            if i >= attempts - 1:
+                raise
+            time.sleep(retry_delay_s)
+    if last_err:
+        raise last_err
+
+
+def maybe_reset_carbon_api():
+    if not CARBON_API_RESET_URL:
+        return
+    try:
+        with urllib.request.urlopen(CARBON_API_RESET_URL, timeout=3) as _:
+            return
+    except Exception:
+        print(f"warning: failed to reset carbon api via {CARBON_API_RESET_URL}", file=sys.stderr)
 
 
 def parse_size_to_mib(value: str) -> Optional[float]:
@@ -228,6 +294,97 @@ def zone_to_region(zone_name: str, zone_region_map: Optional[dict] = None) -> st
     return ""
 
 
+def parse_zone_intensity_pairs(raw: str) -> dict:
+    out = {}
+    for part in (raw or "").split(";"):
+        item = part.strip()
+        if not item or ":" not in item:
+            continue
+        name, value = item.split(":", 1)
+        key = name.strip()
+        if not key:
+            continue
+        try:
+            out[key] = float(value.strip())
+        except Exception:
+            continue
+    return out
+
+
+def reroute_savings_vs_local(
+    request_region: str,
+    selected_region: str,
+    selected_carbon: str,
+    eligible_zone_carbon_intensity: str,
+    zone_region_map: dict,
+) -> Tuple[str, str]:
+    if not request_region or not selected_region or request_region == selected_region:
+        return ("0.000", "0.00")
+
+    try:
+        selected_value = float(selected_carbon)
+    except Exception:
+        return ("0.000", "0.00")
+
+    pairs = parse_zone_intensity_pairs(eligible_zone_carbon_intensity)
+    local_candidates = []
+    for zone_name, intensity in pairs.items():
+        zone_region = zone_to_region(zone_name, zone_region_map)
+        if zone_region == request_region:
+            local_candidates.append(intensity)
+
+    if not local_candidates:
+        return ("0.000", "0.00")
+
+    local_best = min(local_candidates)
+    saved = max(local_best - selected_value, 0.0)
+    if local_best <= 0:
+        return (f"{saved:.3f}", "0.00")
+    saved_pct = (saved / local_best) * 100.0
+    return (f"{saved:.3f}", f"{saved_pct:.2f}")
+
+
+def parse_zone_filter_reasons(raw: str) -> dict:
+    out = {}
+    for part in (raw or "").split(";"):
+        item = part.strip()
+        if not item or ":" not in item:
+            continue
+        zone, reason = item.split(":", 1)
+        zone = zone.strip()
+        reason = reason.strip()
+        if zone:
+            out[zone] = reason
+    return out
+
+
+def build_decision_reason_brief(
+    decision_reason: str,
+    request_region: str,
+    selected_region: str,
+    zone_filter_reasons: str,
+    is_cross_region: bool,
+) -> str:
+    reasons = parse_zone_filter_reasons(zone_filter_reasons)
+    local_filtered = []
+    for zone_name, reason in reasons.items():
+        zone_region = zone_to_region(zone_name)
+        if zone_region == request_region and reason != "eligible":
+            local_filtered.append(reason)
+
+    if local_filtered and is_cross_region:
+        uniq = ",".join(sorted(set(local_filtered)))
+        return f"reroute-fallback: local filtered({uniq})"
+
+    if is_cross_region:
+        return "reroute-green" if decision_reason == "score-win" else "reroute"
+
+    if request_region and selected_region and request_region == selected_region:
+        return "local-green" if decision_reason == "score-win" else "local"
+
+    return decision_reason or "unknown"
+
+
 def build_zone_region_map(cfg: dict) -> dict:
     out = {}
     for proxy in cfg.get("proxies", []):
@@ -248,9 +405,10 @@ def local_vs_selected_relation(request_region: str, selected_zone: str) -> str:
     return "cross-region"
 
 
-def load_fixture_expectation():
-    fixture_path = KIT_DIR / "carbon-traces" / "electricitymap-latest-sample.json"
+def load_fixture_expectation(fixture_path: Path):
     try:
+        if not fixture_path.exists():
+            return None
         data = json.loads(fixture_path.read_text(encoding="utf-8"))
     except Exception:
         return None
@@ -273,6 +431,16 @@ def load_fixture_expectation():
         "greener_region": "tie",
         "expected_cross_direction": "none",
     }
+
+
+def dict_delta(after: dict, before: dict) -> dict:
+    out = {}
+    keys = set(after.keys()) | set(before.keys())
+    for k in keys:
+        val = after.get(k, 0.0) - before.get(k, 0.0)
+        if val > 0:
+            out[k] = val
+    return out
 
 
 def build_modes(fixture_expectation=None):
@@ -323,7 +491,7 @@ def build_modes(fixture_expectation=None):
                 modes.append(timeout_mode)
             continue
         if name == "explicit_cross_region_to_green":
-            if fixture_expectation and fixture_expectation.get("expected_cross_direction") not in (None, "none"):
+            if mode_map.get("carbon_first") is not None:
                 modes.append(explicit_cross_region_mode)
             continue
         cfg = mode_map.get(name)
@@ -353,6 +521,8 @@ def apply_carbon_provider_overrides(cfg: dict) -> dict:
     carbon = out.setdefault("carbon", {})
     if CARBON_PROVIDER_OVERRIDE:
         carbon["provider"] = CARBON_PROVIDER_OVERRIDE
+    if ELECTRICITYMAP_BASE_URL_OVERRIDE:
+        carbon["electricitymap_base_url"] = ELECTRICITYMAP_BASE_URL_OVERRIDE
     if ELECTRICITYMAP_FIXTURE_OVERRIDE:
         carbon["electricitymap_local_fixture"] = ELECTRICITYMAP_FIXTURE_OVERRIDE
     if ELECTRICITYMAP_API_KEY_OVERRIDE:
@@ -376,6 +546,7 @@ def send_requests(
     west_to_east_count = 0
     expected_cross_hits = 0
     expected_cross_eligible_requests = 0
+    selected_carbon_values = []
     expected_from = ""
     expected_to = ""
     if expected_cross_direction and "->" in expected_cross_direction:
@@ -402,6 +573,7 @@ def send_requests(
                 eligible_zone_carbon_intensity = ""
                 zone_filter_reasons = ""
                 decision_reason = ""
+                decision_reason_brief = ""
                 carbon_saved_vs_worst = ""
                 carbon_saved_vs_worst_percent = ""
                 try:
@@ -458,8 +630,28 @@ def send_requests(
                     if is_cross_region and selected_zone_region == expected_to:
                         expected_cross_hits += 1
                 if scenario.startswith("baseline_no_carbon_"):
-                    carbon_saved_vs_worst = "n/a"
-                    carbon_saved_vs_worst_percent = "n/a"
+                    carbon_saved_vs_worst = "0.000"
+                    carbon_saved_vs_worst_percent = "0.00"
+                else:
+                    carbon_saved_vs_worst, carbon_saved_vs_worst_percent = reroute_savings_vs_local(
+                        header_region,
+                        selected_zone_region,
+                        selected_carbon,
+                        eligible_zone_carbon_intensity,
+                        zone_region_map,
+                    )
+                decision_reason_brief = build_decision_reason_brief(
+                    decision_reason,
+                    header_region,
+                    selected_zone_region,
+                    zone_filter_reasons,
+                    is_cross_region,
+                )
+                try:
+                    if selected_carbon:
+                        selected_carbon_values.append(float(selected_carbon))
+                except Exception:
+                    pass
                 w.writerow([
                     now_iso(),
                     scenario,
@@ -469,12 +661,11 @@ def send_requests(
                     f"{latency_ms:.3f}",
                     code,
                     selected_carbon,
-                    zone_carbon_intensity,
-                    eligible_zone_carbon_intensity,
                     zone_filter_reasons,
                     carbon_saved_vs_worst,
                     carbon_saved_vs_worst_percent,
                     decision_reason,
+                    decision_reason_brief,
                 ])
     return {
         "latencies": latencies,
@@ -486,6 +677,11 @@ def send_requests(
         "west_to_east_count": west_to_east_count,
         "expected_cross_hits": expected_cross_hits,
         "expected_cross_eligible_requests": expected_cross_eligible_requests,
+        "selected_carbon_mean": (
+            (sum(selected_carbon_values) / len(selected_carbon_values))
+            if selected_carbon_values
+            else None
+        ),
     }
 
 
@@ -522,17 +718,17 @@ def collect_rilot_metrics(route: str):
     req_total, req_by_zone = parse_prom_sum(metrics_text, "requests_total", route)
     co2e_total, _ = parse_prom_sum(metrics_text, "co2e_estimated_total", route)
     exposure_total, _ = parse_prom_sum(metrics_text, "carbon_intensity_exposure_total", route)
-    mean_exposure = (exposure_total / req_total) if req_total > 0 else 0.0
-    return metrics_text, req_total, req_by_zone, co2e_total, mean_exposure
+    return metrics_text, req_total, req_by_zone, co2e_total, exposure_total
 
 
 def main():
     RESULTS_BASE.mkdir(parents=True, exist_ok=True)
-    for child in RESULTS_BASE.iterdir():
-        if child.is_dir():
-            shutil.rmtree(child)
-        else:
-            child.unlink()
+    if CLEAN_RESULTS_BASE:
+        for child in RESULTS_BASE.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_dir = RESULTS_BASE / f"comparative-{timestamp}"
@@ -549,12 +745,11 @@ def main():
             "latency_ms",
             "http_code",
             "selected_carbon_intensity_g_per_kwh",
-            "zone_carbon_intensity_g_per_kwh",
-            "eligible_zone_carbon_intensity_g_per_kwh",
             "zone_filter_reasons",
             "carbon_saved_vs_worst_g_per_kwh",
             "carbon_saved_vs_worst_percent",
             "decision_reason",
+            "decision_reason_brief",
         ])
 
     original_config = CONFIG_PATH.read_text(encoding="utf-8")
@@ -562,7 +757,15 @@ def main():
         apply_carbon_variance_profile(json.loads(original_config))
     )
     zone_region_map = build_zone_region_map(base_cfg)
-    fixture_expectation = load_fixture_expectation()
+    if ELECTRICITYMAP_FIXTURE_OVERRIDE:
+        fixture_candidate = Path(ELECTRICITYMAP_FIXTURE_OVERRIDE)
+        fixture_path = fixture_candidate if fixture_candidate.is_absolute() else (KIT_DIR / fixture_candidate)
+    else:
+        fixture_path = KIT_DIR / "carbon-traces" / "electricitymap-latest-sample.json"
+    fixture_expectation = load_fixture_expectation(fixture_path)
+    unique_regions = {r for r in zone_region_map.values() if r}
+    if not (len(zone_region_map) == 2 and unique_regions == {"us-east", "us-west"}):
+        fixture_expectation = None
     expected_cross_direction = (
         fixture_expectation.get("expected_cross_direction")
         if fixture_expectation
@@ -571,15 +774,41 @@ def main():
     modes = build_modes(fixture_expectation)
     summaries = []
     try:
-        run(COMPOSE + ["up", "-d"] + BACKEND_SERVICES)
+        run(
+            COMPOSE + ["up", "-d", "--remove-orphans"] + BACKEND_SERVICES,
+            retries=COMPOSE_RETRIES,
+            retry_delay_s=COMPOSE_RETRY_DELAY_SECONDS,
+        )
+
+        if RILOT_BUILD_MODE == "build-once":
+            run(
+                COMPOSE + ["up", "-d", "--remove-orphans", "--build", "rilot"],
+                retries=COMPOSE_RETRIES,
+                retry_delay_s=COMPOSE_RETRY_DELAY_SECONDS,
+            )
 
         for mode_name, mode_cfg in modes:
+            maybe_reset_carbon_api()
             mode_out = apply_mode(base_cfg, mode_name, mode_cfg)
             CONFIG_PATH.write_text(json.dumps(mode_out, indent=2) + "\n", encoding="utf-8")
-            run(COMPOSE + ["up", "-d", "--build", "rilot"])
+            if RILOT_BUILD_MODE == "build-per-mode":
+                run(
+                    COMPOSE + ["up", "-d", "--remove-orphans", "--build", "--force-recreate", "rilot"],
+                    retries=COMPOSE_RETRIES,
+                    retry_delay_s=COMPOSE_RETRY_DELAY_SECONDS,
+                )
+            else:
+                run(
+                    COMPOSE + ["up", "-d", "--remove-orphans", "--force-recreate", "rilot"],
+                    retries=COMPOSE_RETRIES,
+                    retry_delay_s=COMPOSE_RETRY_DELAY_SECONDS,
+                )
             if not wait_http_ok(f"{RILOT_URL}/metrics"):
                 raise RuntimeError(f"rilot metrics not ready for mode={mode_name}")
 
+            _, req_total_before, req_by_zone_before, co2e_before, exposure_before = collect_rilot_metrics(
+                ROUTE_METRIC_FILTER
+            )
             cpu_start_usec = read_cgroup_cpu_usage_usec()
             mem_peak_start = read_cgroup_memory_peak_bytes()
             start_wall = time.perf_counter()
@@ -594,10 +823,20 @@ def main():
             cpu_end_usec = read_cgroup_cpu_usage_usec()
             mem_peak_end = read_cgroup_memory_peak_bytes()
             mem_current_end = read_cgroup_memory_current_bytes()
-            metrics_text, req_total, req_by_zone, co2e_total, mean_exposure = collect_rilot_metrics(
+            metrics_text, req_total_after, req_by_zone_after, co2e_after, exposure_after = collect_rilot_metrics(
                 ROUTE_METRIC_FILTER
             )
             (out_dir / f"metrics-{mode_name}.prom").write_text(metrics_text, encoding="utf-8")
+            req_total_delta = max(req_total_after - req_total_before, 0.0)
+            co2e_total = max(co2e_after - co2e_before, 0.0)
+            exposure_total = max(exposure_after - exposure_before, 0.0)
+            mean_exposure_prom = (exposure_total / req_total_delta) if req_total_delta > 0 else 0.0
+            mean_exposure = (
+                req_stats["selected_carbon_mean"]
+                if req_stats.get("selected_carbon_mean") is not None
+                else mean_exposure_prom
+            )
+            req_by_zone_delta = dict_delta(req_by_zone_after, req_by_zone_before)
 
             lats = req_stats["latencies"]
             cpu_percent_stats, memory_mb_stats = collect_rilot_resource_sample()
@@ -612,23 +851,31 @@ def main():
                 memory_peak_delta = bytes_to_mib(max(mem_peak_end - mem_peak_start, 0))
             memory_mb = bytes_to_mib(mem_peak_end) if mem_peak_end is not None else memory_mb_stats
             memory_current_mb = bytes_to_mib(mem_current_end)
+            scenario_requests = req_stats["ok_count"] + req_stats["error_count"]
             summaries.append({
                 "scenario": mode_name,
                 "kind": "rilot_mode",
-                "requests": int(req_total),
+                "requests": int(scenario_requests),
                 "ok_count": req_stats["ok_count"],
                 "error_count": req_stats["error_count"],
-                "error_rate_percent": (req_stats["error_count"] / max(1, int(req_total))) * 100.0,
+                "error_rate_percent": (req_stats["error_count"] / max(1, int(scenario_requests))) * 100.0,
                 "latency_avg_ms": (sum(lats) / len(lats)) if lats else 0.0,
                 "latency_p95_ms": percentile(lats, 95),
                 "carbon_exposure_mean_g_per_kwh": mean_exposure,
+                "carbon_exposure_mean_source": (
+                    "request_headers"
+                    if req_stats.get("selected_carbon_mean") is not None
+                    else "prometheus_delta"
+                ),
                 "co2e_estimated_total_g": co2e_total,
                 "cpu_percent_sample": cpu_percent,
                 "cpu_sample_method": "cgroup_delta" if cpu_percent_window is not None else "docker_stats",
                 "memory_mb_sample": memory_mb,
                 "memory_current_mb_sample": memory_current_mb,
                 "memory_peak_delta_mb": memory_peak_delta,
-                "zone_counts": req_by_zone,
+                "zone_counts": req_stats["zone_counts"],
+                "requests_total_metric_delta": req_total_delta,
+                "requests_by_zone_metric_delta": req_by_zone_delta,
                 "cross_region_reroutes": req_stats["cross_region_count"],
                 "east_to_west_reroutes": req_stats["east_to_west_count"],
                 "west_to_east_reroutes": req_stats["west_to_east_count"],
@@ -698,6 +945,7 @@ def main():
         "expected_cross_eligible_requests",
         "expected_cross_to_green_rate_percent",
         "carbon_exposure_mean_g_per_kwh",
+        "carbon_exposure_mean_source",
         "carbon_exposure_saved_g_per_kwh_vs_baseline",
         "carbon_exposure_saved_percent_vs_baseline",
         "co2e_estimated_total_g",

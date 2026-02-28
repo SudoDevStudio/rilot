@@ -10,8 +10,9 @@ services:
       RUST_LOG: info
       RILOT_ENV: production
       RILOT_EXPOSE_RESEARCH_HEADERS: "true"
+      RILOT_EMULATE_CROSS_REGION_RTT: "${RILOT_EMULATE_CROSS_REGION_RTT:-false}"
     volumes:
-      - ./config.live.json:/app/config.json:ro
+      - ./${CONFIG_FILE_NAME:-config.live.json}:/app/config.json:ro
       - ./carbon-traces:/app/carbon-traces:ro
     ports:
       - "${RILOT_HOST_PORT:-8080}:8080"

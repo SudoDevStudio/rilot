@@ -41,6 +41,11 @@ Normalized weighted score over:
 
 Lower score wins.
 
+Cross-region penalty behavior:
+
+- `constraints.cross_region_rtt_penalty_ms` is always applied in scoring when request region differs from selected region.
+- If `RILOT_EMULATE_CROSS_REGION_RTT=true`, the same penalty is also applied to actual forwarded request latency (sleep before upstream call), so measured p95 latency reflects cross-region routing choices.
+
 Priority modes:
 
 - `latency-first`

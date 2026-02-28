@@ -7,7 +7,7 @@
 - Forecast/time-shift toggles for background traffic.
 - Prometheus metrics endpoint (`/metrics`).
 - Structured decision logs + periodic rollups.
-- Docker testbed in `research-kit/docker-compose.yml`.
+- Docker testbed in `research-kit/docker-compose.live.yml`.
 - Sample carbon traces in `research-kit/carbon-traces/us-grid-sample.csv`.
 - Wasm plugin interface for custom routing/energy overrides.
 
@@ -17,7 +17,7 @@ Run the experiment runner:
 
 ```bash
 cd research-kit
-./scripts/run_experiment.sh
+./scripts/run_live_experiment.sh
 ```
 
 Region context for experiments is provided via `x-user-region` request header.
@@ -48,12 +48,14 @@ Measure:
 
 Outputs:
 
-- `research-kit/results/comparative-<timestamp>/summary.csv`
-- `research-kit/results/comparative-<timestamp>/summary.json`
-- `research-kit/results/comparative-<timestamp>/summary.md`
+- `research-kit/result_live/comparative-live/summary.csv`
+- `research-kit/result_live/comparative-live/summary.json`
+- `research-kit/result_live/comparative-live/summary.md`
 - Per-scenario Prometheus dumps and request-level CSV.
 - CSV/Markdown trade-off deltas vs baseline (exposure saved, CO2e saved, latency delta, CPU delta).
 - Cross-region reroute observability (`east->west`, `west->east`) in both `requests.csv` and summary outputs.
+- The latest run is written to a stable path:
+  - `research-kit/result_live/comparative-live/`
 
 ## Reading the comparative outputs
 
@@ -86,23 +88,20 @@ Outputs:
 
 ## Optional experiment variants
 
-- High variance trace profile:
-  - `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
-  - Uses a wider east/west carbon split in `zone_current`/`zone_forecast_next`.
 - Real-data provider override:
-  - `CARBON_PROVIDER_OVERRIDE=electricitymap-local ELECTRICITYMAP_FIXTURE_OVERRIDE=./carbon-traces/electricitymap-latest-sample.json ./scripts/run_experiment.sh`
-  - `CARBON_PROVIDER_OVERRIDE=electricitymap ELECTRICITYMAP_API_KEY_OVERRIDE=<key> ./scripts/run_experiment.sh`
+  - `CARBON_PROVIDER_OVERRIDE=electricitymap ELECTRICITYMAP_API_KEY_OVERRIDE=<key> ./scripts/run_live_experiment.sh`
 - Robustness scenario toggle:
-  - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (default)
+  - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_live_experiment.sh` (default)
   - Adds `slow-mock` + short provider timeout scenario.
-- Sensitivity analysis:
-  - `python3 research-kit/scripts/run_weight_sensitivity.py`
-  - Produces `research-kit/results/sensitivity-<timestamp>/weights-summary.{json,md}`.
 - Long-duration study:
-  - `REQUESTS_PER_REGION=1000 ./scripts/run_experiment.sh`
+  - `REQUESTS_PER_REGION=1000 ./scripts/run_live_experiment.sh`
 - 10-zone live-style study with high-consuming requests:
   - `./scripts/run_live_experiment.sh`
-  - writes outputs under `research-kit/result_live/`
+  - uses local dynamic ElectricityMap-compatible API (`scripts/carbon-signal-api.js`)
+  - defaults to `carbon.cache_ttl_seconds=0`
+  - defaults to random dynamic intensities in `[100, 700]`
+  - defaults to cross-region RTT latency emulation (`RILOT_EMULATE_CROSS_REGION_RTT=true`)
+  - writes outputs under `research-kit/result_live/comparative-live/`
 
 ## Ethical and practical implications
 

@@ -1,0 +1,51 @@
+{
+  "testNotes": {
+    "scenario": "dynamic-local-carbon-signal",
+    "source": "carbon-signal-api",
+    "tick": 79,
+    "generatedAtUtc": "2026-02-27T22:21:33.007Z",
+    "seed": 42
+  },
+  "zones": {
+    "zone-01": {
+      "carbonIntensity": 133.887,
+      "carbonIntensityForecast": 137.915
+    },
+    "zone-02": {
+      "carbonIntensity": 300.195,
+      "carbonIntensityForecast": 249.884
+    },
+    "zone-03": {
+      "carbonIntensity": 574.935,
+      "carbonIntensityForecast": 611.824
+    },
+    "zone-04": {
+      "carbonIntensity": 553.695,
+      "carbonIntensityForecast": 500.602
+    },
+    "zone-05": {
+      "carbonIntensity": 331.725,
+      "carbonIntensityForecast": 354.333
+    },
+    "zone-06": {
+      "carbonIntensity": 402.457,
+      "carbonIntensityForecast": 350.061
+    },
+    "zone-07": {
+      "carbonIntensity": 473.264,
+      "carbonIntensityForecast": 482.118
+    },
+    "zone-08": {
+      "carbonIntensity": 448.134,
+      "carbonIntensityForecast": 468.792
+    },
+    "zone-09": {
+      "carbonIntensity": 288.589,
+      "carbonIntensityForecast": 313.804
+    },
+    "zone-10": {
+      "carbonIntensity": 564.383,
+      "carbonIntensityForecast": 520.049
+    }
+  }
+}

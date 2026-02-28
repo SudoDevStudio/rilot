@@ -61,7 +61,7 @@ For local/offline testing, use:
 ```bash
 cd research-kit
 docker compose up --build -d
-./scripts/run_experiment.sh
+./scripts/run_live_experiment.sh
 ```
 
 The generated `summary.md` includes explicit trade-off deltas versus baseline:
@@ -75,10 +75,10 @@ The generated `summary.md` includes explicit trade-off deltas versus baseline:
 
 Optional stronger-evidence runs:
 
-- `CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh`
-- `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh` (provider-timeout robustness)
+- `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_live_experiment.sh` (provider-timeout robustness)
 - `python3 ./scripts/run_weight_sensitivity.py` (policy weight sensitivity)
 - `node ./scripts/charts.js` (interactive charts from latest comparative run; writes `charts.html`)
+- `./scripts/run_live_experiment.sh` (10-zone live-profile run, stable output at `result_live/comparative-live/`)
 
 ## Core docs
 
@@ -102,7 +102,7 @@ Optional stronger-evidence runs:
 - Default config: `config.json`
 - Example config: `examples/config/config.json`
 - Local simulators: `examples/node-apps/`
-- Docker experiment config: `research-kit/config.docker.json`
+- Docker experiment config: `research-kit/config.live.json`
 
 ## Broader Applicability
 
@@ -114,10 +114,10 @@ Optional stronger-evidence runs:
 
 All code, configuration, and experiment scripts required to reproduce the reported results are included in this repository.
 
-- Comparative evaluation scripts: `research-kit/scripts/run_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
+- Comparative evaluation scripts: `research-kit/scripts/run_live_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
 - Sensitivity analysis script: `research-kit/scripts/run_weight_sensitivity.py`
-- Experiment configuration and traces: `research-kit/config.docker.json`, `research-kit/carbon-traces/`
-- Generated artifacts: `research-kit/results/` (summary tables, per-request CSV, Prometheus snapshots)
+- Experiment configuration and traces: `research-kit/config.live.json`, `research-kit/carbon-traces/`
+- Generated artifacts: `research-kit/result_live/comparative-live/` (summary tables, per-request CSV, Prometheus snapshots, charts)
 
 ## License
 

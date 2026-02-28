@@ -1,29 +1,27 @@
 # Research Kit
 
-This folder provides a reproducible Docker workflow for comparative evaluation of Rilot routing policies.
+This folder provides the paper-aligned live-style Docker workflow for comparative evaluation of Rilot routing policies.
 
 ## Components
 
-- `docker-compose.yml`: starts Rilot, two Node.js zone simulators, and Prometheus.
 - `docker-compose.live.yml`: starts Rilot, ten high-consumption zone simulators, and Prometheus.
-- `config.docker.json`: Docker-native routing and policy config.
 - `config.live.json`: 10-zone live-style config with per-zone share cap (`max_request_share_percent`).
 - `prometheus.yml`: scrape config for `/metrics`.
-- `scripts/run_experiment.sh`: comparative evaluation runner (Rilot policy-mode baselines).
-- `scripts/run_live_experiment.sh`: live-profile comparative runner that writes to `result_live/`.
+- `scripts/run_live_experiment.sh`: primary comparative runner (10 zones + local dynamic carbon API) that writes to `result_live/`.
+- `scripts/run_experiment.sh`: compatibility wrapper that delegates to `run_live_experiment.sh`.
 - `scripts/run_comparative_evaluation.py`: request-level and summary report generator.
+- `scripts/carbon-signal-api.js`: local ElectricityMap-compatible dynamic API for reproducible live-style runs.
 - `carbon-traces/us-grid-sample.csv`: sample trace format.
 - `carbon-traces/electricitymap-latest-sample.json`: ElectricityMap-style local fixture.
 
 ## Quickstart
 
 ```bash
-docker compose up --build -d
-./scripts/run_experiment.sh
+./scripts/run_live_experiment.sh
 ```
 
-Outputs are written to `./results` by default.
-`run_experiment.sh` and `run_live_experiment.sh` now also generate `charts.html` automatically in the latest comparative output folder.
+Outputs are written to `./result_live/comparative-live` by default.
+Both scripts generate `charts.html` automatically in that folder.
 
 Generated output includes:
 
@@ -40,6 +38,7 @@ Generated output includes:
 - `zone_filter_reasons` (per-zone eligibility/constraint reason, e.g. `added-latency>50`, `share-cap`, `eligible`)
 - `carbon_saved_vs_worst_g_per_kwh`
 - `decision_reason`
+- `decision_reason_brief`
 
 The comparative summary now also reports reroute counts per mode:
 
@@ -52,32 +51,10 @@ Resource-overhead fields are also included per scenario:
 - `cpu_percent_sample`, `cpu_sample_method`, `cpu_delta_percent_vs_baseline`
 - `memory_mb_sample`, `memory_delta_mb_vs_baseline`
 
-Optional region input mode:
-
-```bash
-USER_REGION_INPUT_MODE=mock-random ./scripts/run_experiment.sh
-```
-
-Run with higher carbon variance (stronger effect-size tests):
-
-```bash
-CARBON_VARIANCE_PROFILE=high-variance ./scripts/run_experiment.sh
-```
-
 Run a longer-duration case study (same setup, larger workload):
 
 ```bash
-REQUESTS_PER_REGION=1000 ./scripts/run_experiment.sh
-```
-
-Run a real-data style case study using ElectricityMap-compatible signals:
-
-```bash
-# Offline fixture mode (captured ElectricityMap-format JSON)
-CARBON_PROVIDER_OVERRIDE=electricitymap-local \
-ELECTRICITYMAP_FIXTURE_OVERRIDE=./carbon-traces/electricitymap-latest-sample.json \
-REQUESTS_PER_REGION=1000 \
-./scripts/run_experiment.sh
+REQUESTS_PER_REGION=1000 ./scripts/run_live_experiment.sh
 ```
 
 Run 10-zone live-style study with high-consuming workloads:
@@ -89,23 +66,35 @@ Run 10-zone live-style study with high-consuming workloads:
 This uses:
 
 - `docker-compose.live.yml`
-- `config.live.json`
+- `config.live.json` as base, rewritten into `config.live.dynamic.json` for run-time overrides
+- local dynamic ElectricityMap-compatible API (`scripts/carbon-signal-api.js`)
 - route `"/heavy?burn_ms=40"` by default
-- output directory `result_live/`
+- no carbon cache (`carbon.cache_ttl_seconds=0`)
+- random carbon intensities in `[100, 700]` by default
+- output directory `result_live/comparative-live` (stable path)
+- cross-region RTT emulation enabled by default (`RILOT_EMULATE_CROSS_REGION_RTT=true`)
+
+Useful overrides:
+
+```bash
+REQUESTS_PER_REGION=500 ./scripts/run_live_experiment.sh
+RILOT_EMULATE_CROSS_REGION_RTT=false ./scripts/run_live_experiment.sh
+CARBON_API_MIN_G=150 CARBON_API_MAX_G=650 ./scripts/run_live_experiment.sh
+```
 
 ```bash
 # Live ElectricityMap mode (requires API key)
 CARBON_PROVIDER_OVERRIDE=electricitymap \
 ELECTRICITYMAP_API_KEY_OVERRIDE=<your_api_key> \
 REQUESTS_PER_REGION=1000 \
-./scripts/run_experiment.sh
+./scripts/run_live_experiment.sh
 ```
 
 Enable/disable timeout robustness scenario:
 
 ```bash
-ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh
-ENABLE_FAILURE_SCENARIO=0 ./scripts/run_experiment.sh
+ENABLE_FAILURE_SCENARIO=1 ./scripts/run_live_experiment.sh
+ENABLE_FAILURE_SCENARIO=0 ./scripts/run_live_experiment.sh
 ```
 
 Run weight sensitivity analysis:
@@ -124,7 +113,7 @@ Optional:
 
 ```bash
 # Use a specific run folder
-node ./scripts/charts.js --input-dir ./results/comparative-YYYYMMDDTHHMMSSZ
+node ./scripts/charts.js --input-dir ./result_live/comparative-live
 
 # Use live result base
 node ./scripts/charts.js --results-base ./result_live
@@ -142,20 +131,19 @@ This writes `charts.html` into the selected comparative result folder.
 
 ## Submission Reproduction Bundle
 
-Run these three commands and include the generated folders in your supplementary package:
+Run these commands and include the generated folders in your supplementary package:
 
 ```bash
 cd research-kit
-CARBON_VARIANCE_PROFILE=high-variance ENABLE_FAILURE_SCENARIO=1 ./scripts/run_experiment.sh
-python3 ./scripts/run_weight_sensitivity.py
+ENABLE_FAILURE_SCENARIO=1 REQUESTS_PER_REGION=1000 ./scripts/run_live_experiment.sh
 ```
 
 Expected outputs:
 
-- `results/comparative-<timestamp>/summary.{md,csv,json}`
-- `results/comparative-<timestamp>/requests.csv`
-- `results/comparative-<timestamp>/metrics-*.prom`
-- `results/sensitivity-<timestamp>/weights-summary.{md,json}`
+- `result_live/comparative-live/summary.{md,csv,json}`
+- `result_live/comparative-live/requests.csv`
+- `result_live/comparative-live/metrics-*.prom`
+- `result_live/comparative-live/charts.html`
 
 Failure/operational evidence is captured by scenario `carbon_first_provider_timeout` in `summary.*`.
 Use this row to demonstrate timeout/fallback behavior and service stability under degraded carbon-signal conditions.
@@ -179,7 +167,7 @@ Fairness/user-impact evidence is captured in reroute columns:
 
 Use these with latency/error metrics to report trade-offs and justify policy guardrails.
 
-Fairness/locality tuning knobs (in `config.docker.json` policy):
+Fairness/locality tuning knobs (in `config.live.json` policy):
 
 - Reduce `w_carbon` and increase `w_latency` for user-facing routes.
 - Set tighter `constraints.max_added_latency_ms` and `constraints.p95_latency_budget_ms`.

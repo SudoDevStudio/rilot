@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="zone-05"} 500
+carbon_safe_calls_total{route="/",zone="zone-05"} 0
+carbon_safe_call_ratio{route="/",zone="zone-05"} 0.00000000
+errors_total{route="/",zone="zone-05"} 2
+carbon_intensity_exposure_total{route="/",zone="zone-05"} 267314.93100000
+co2e_estimated_total{route="/",zone="zone-05"} 0.01757789
+energy_joules_estimated_total{route="/",zone="zone-05"} 118.39758796
+latency_ms_bucket{route="/",zone="zone-05",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-05",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-05",le="100"} 500
+latency_ms_bucket{route="/",zone="zone-05",le="250"} 500
+latency_ms_bucket{route="/",zone="zone-05",le="500"} 500
+latency_ms_bucket{route="/",zone="zone-05",le="1000"} 500
+latency_ms_bucket{route="/",zone="zone-05",le="2000"} 500
+requests_total{route="/",zone="zone-01"} 500
+carbon_safe_calls_total{route="/",zone="zone-01"} 0
+carbon_safe_call_ratio{route="/",zone="zone-01"} 0.00000000
+errors_total{route="/",zone="zone-01"} 4
+carbon_intensity_exposure_total{route="/",zone="zone-01"} 312464.73000000
+co2e_estimated_total{route="/",zone="zone-01"} 0.01629930
+energy_joules_estimated_total{route="/",zone="zone-01"} 93.87014889
+latency_ms_bucket{route="/",zone="zone-01",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="100"} 500
+latency_ms_bucket{route="/",zone="zone-01",le="250"} 500
+latency_ms_bucket{route="/",zone="zone-01",le="500"} 500
+latency_ms_bucket{route="/",zone="zone-01",le="1000"} 500
+latency_ms_bucket{route="/",zone="zone-01",le="2000"} 500
+carbon_intensity_g_per_kwh{zone="zone-05"} 492.435000
+carbon_intensity_g_per_kwh{zone="zone-01"} 529.720000

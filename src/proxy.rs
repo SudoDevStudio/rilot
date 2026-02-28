@@ -42,6 +42,11 @@ static EXPOSE_RESEARCH_HEADERS: Lazy<bool> = Lazy::new(|| {
         .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false)
 });
+static EMULATE_CROSS_REGION_RTT: Lazy<bool> = Lazy::new(|| {
+    std::env::var("RILOT_EMULATE_CROSS_REGION_RTT")
+        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
+        .unwrap_or(false)
+});
 
 #[derive(Serialize)]
 struct WasmInput {
@@ -481,6 +486,22 @@ async fn handle_request(
 
     *req.uri_mut() = final_uri;
     *req.body_mut() = Body::from(body_bytes.clone());
+    if *EMULATE_CROSS_REGION_RTT {
+        let user_region = header_or_none(&headers_map, "x-user-region").unwrap_or_default();
+        if let Some(d) = &decision {
+            if !user_region.is_empty() && user_region != d.zone.region {
+                let penalty_ms = proxy_config
+                    .policy
+                    .constraints
+                    .cross_region_rtt_penalty_ms
+                    .unwrap_or(CROSS_REGION_RTT_PENALTY_MS)
+                    .max(0.0);
+                if penalty_ms > 0.0 {
+                    tokio::time::sleep(Duration::from_millis(penalty_ms.round() as u64)).await;
+                }
+            }
+        }
+    }
     increment_in_flight(&state, &selected_zone_name, 1);
     let start = Instant::now();
     let client = Client::new();
@@ -634,7 +655,21 @@ fn choose_zone(
         .cross_region_rtt_penalty_ms
         .unwrap_or(CROSS_REGION_RTT_PENALTY_MS);
     let preselected = preselect_candidates(&zones, &proxy.policy.constraints, &user_region);
-    let best_latency = preselected
+    let candidates = if classified.route_class == "strict-local" && !user_region.is_empty() {
+        let local_only: Vec<ZoneCandidate> = preselected
+            .iter()
+            .filter(|z| z.region == user_region)
+            .cloned()
+            .collect();
+        if local_only.is_empty() {
+            preselected
+        } else {
+            local_only
+        }
+    } else {
+        preselected
+    };
+    let best_latency = candidates
         .iter()
         .map(|z| estimate_latency_ms(&user_region, z, cross_region_penalty_ms))
         .fold(f64::INFINITY, |acc, v| acc.min(v))
@@ -647,7 +682,7 @@ fn choose_zone(
     let mut max_cost: f64 = 0.001;
     let mut has_any_carbon = false;
 
-    for zone in preselected {
+    for zone in candidates {
         let signal = get_signal_nonblocking(&zone.name, carbon_cfg, state);
         let latency_ms = estimate_latency_ms(&user_region, &zone, cross_region_penalty_ms);
         let error_rate = current_error_rate(state, &zone.name);
@@ -772,7 +807,7 @@ fn choose_zone(
     }
 
     if !classified.carbon_cursor_enabled || !has_any_carbon {
-        return lowest_latency_with_hysteresis(proxy, scores, state);
+        return lowest_latency_with_hysteresis(proxy, scores, state, &user_region, &classified.route_class);
     }
 
     // Rare tie case: if all eligible candidates have identical carbon signal,
@@ -800,7 +835,13 @@ fn choose_zone(
                 if chosen.filtered_out_reason.is_none() {
                     chosen.filtered_out_reason = Some("config-order-carbon-tie".to_string());
                 }
-                return Some(apply_hysteresis(proxy, chosen, state));
+                return Some(apply_hysteresis(
+                    proxy,
+                    chosen,
+                    state,
+                    &user_region,
+                    &classified.route_class,
+                ));
             }
         }
     }
@@ -850,10 +891,16 @@ fn choose_zone(
     });
 
     if let Some(best) = eligible.first().cloned() {
-        return Some(apply_hysteresis(proxy, best, state));
+        return Some(apply_hysteresis(
+            proxy,
+            best,
+            state,
+            &user_region,
+            &classified.route_class,
+        ));
     }
     if proxy.policy.fail_safe_lowest_latency {
-        return lowest_latency_with_hysteresis(proxy, eligible, state);
+        return lowest_latency_with_hysteresis(proxy, eligible, state, &user_region, &classified.route_class);
     }
     None
 }
@@ -862,6 +909,8 @@ fn lowest_latency_with_hysteresis(
     proxy: &config::ProxyConfig,
     mut candidates: Vec<ZoneScore>,
     state: &AppState,
+    user_region: &str,
+    route_class: &str,
 ) -> Option<ZoneScore> {
     if candidates.is_empty() {
         return None;
@@ -875,7 +924,7 @@ fn lowest_latency_with_hysteresis(
     let mut best = candidates.remove(0);
     best.score = 9999.0;
     best.filtered_out_reason = Some("fallback-lowest-latency".to_string());
-    Some(apply_hysteresis(proxy, best, state))
+    Some(apply_hysteresis(proxy, best, state, user_region, route_class))
 }
 
 fn preselect_candidates(
@@ -987,7 +1036,13 @@ fn current_route_zone_share_percent(state: &AppState, route: &str, zone: &str) -
     (zone_requests as f64 / total_requests as f64) * 100.0
 }
 
-fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &AppState) -> ZoneScore {
+fn apply_hysteresis(
+    proxy: &config::ProxyConfig,
+    candidate: ZoneScore,
+    state: &AppState,
+    user_region: &str,
+    route_class: &str,
+) -> ZoneScore {
     let route_key = proxy.rule.path.clone();
     let mut s = state.inner.write().expect("state lock poisoned");
     if let Some(last) = s.last_decision_by_route.get(&route_key) {
@@ -998,6 +1053,17 @@ fn apply_hysteresis(proxy: &config::ProxyConfig, candidate: ZoneScore, state: &A
             && last.zone != candidate.zone.name
         {
             if let Some(existing) = resolve_zones(proxy).into_iter().find(|z| z.name == last.zone) {
+                if route_class == "strict-local" && !user_region.is_empty() && existing.region != user_region {
+                    s.last_decision_by_route.insert(
+                        route_key,
+                        LastDecision {
+                            zone: candidate.zone.name.clone(),
+                            score: candidate.score,
+                            at: Instant::now(),
+                        },
+                    );
+                    return candidate;
+                }
                 return ZoneScore {
                     zone: existing,
                     score: last.score,
