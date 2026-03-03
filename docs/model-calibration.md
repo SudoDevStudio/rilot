@@ -14,7 +14,7 @@ Per request, Rilot computes:
 
 Default energy estimate in `src/proxy.rs`:
 
-- `energy_joules = 0.6 * latency_ms + 0.0005 * bytes`
+- `energy_joules = 0.003 * latency_ms + 0.00001 * bytes`
 
 Carbon conversion:
 
