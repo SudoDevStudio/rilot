@@ -876,7 +876,7 @@ fn choose_zone(
         })
         .collect();
     if eligible.is_empty() && proxy.policy.constraints.max_request_share_percent.is_some() {
-        let mut relaxed = all_scores;
+        let mut relaxed = all_scores.clone();
         for s in &mut relaxed {
             if s.filtered_out_reason.as_deref() == Some("share-cap") {
                 s.filtered_out_reason = Some("share-cap-relaxed-fallback".to_string());
@@ -888,6 +888,7 @@ fn choose_zone(
         a.score
             .partial_cmp(&b.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.zone.order.cmp(&b.zone.order))
     });
 
     if let Some(best) = eligible.first().cloned() {
@@ -900,7 +901,7 @@ fn choose_zone(
         ));
     }
     if proxy.policy.fail_safe_lowest_latency {
-        return lowest_latency_with_hysteresis(proxy, eligible, state, &user_region, &classified.route_class);
+        return lowest_latency_with_hysteresis(proxy, all_scores, state, &user_region, &classified.route_class);
     }
     None
 }
@@ -1132,39 +1133,8 @@ fn estimate_latency_ms(user_region: &str, zone: &ZoneCandidate, cross_region_pen
 }
 
 fn get_signal_nonblocking(zone: &str, cfg: &config::CarbonProviderConfig, state: &AppState) -> CarbonSignal {
-    if cfg.provider == "electricitymap-local" {
-        if cfg.electricitymap_local_live_reload {
-            let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
-            return CarbonSignal {
-                current,
-                forecast_next,
-            };
-        }
-
-        let now = Instant::now();
-        {
-            let s = state.inner.read().expect("state lock poisoned");
-            if let Some(entry) = s.carbon_cache.get(zone) {
-                if now <= entry.expires_at {
-                    return CarbonSignal {
-                        current: entry.current,
-                        forecast_next: entry.forecast_next,
-                    };
-                }
-            }
-        }
-
+    if cfg.provider == "electricitymap-local" && cfg.electricitymap_local_live_reload {
         let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
-        let ttl_secs = cfg.cache_ttl_seconds.max(1);
-        let mut s = state.inner.write().expect("state lock poisoned");
-        s.carbon_cache.insert(
-            zone.to_string(),
-            CachedCarbon {
-                current,
-                forecast_next,
-                expires_at: Instant::now() + Duration::from_secs(ttl_secs),
-            },
-        );
         return CarbonSignal {
             current,
             forecast_next,
@@ -1172,16 +1142,23 @@ fn get_signal_nonblocking(zone: &str, cfg: &config::CarbonProviderConfig, state:
     }
 
     let now = Instant::now();
-    {
+    let cached = {
         let s = state.inner.read().expect("state lock poisoned");
-        if let Some(entry) = s.carbon_cache.get(zone) {
-            if now <= entry.expires_at {
-                return CarbonSignal {
-                    current: entry.current,
-                    forecast_next: entry.forecast_next,
-                };
-            }
+        s.carbon_cache.get(zone).cloned()
+    };
+
+    if let Some(entry) = cached {
+        if now <= entry.expires_at {
+            return CarbonSignal {
+                current: entry.current,
+                forecast_next: entry.forecast_next,
+            };
         }
+        trigger_refresh(zone.to_string(), cfg.clone(), state.clone());
+        return CarbonSignal {
+            current: entry.current,
+            forecast_next: entry.forecast_next,
+        };
     }
 
     trigger_refresh(zone.to_string(), cfg.clone(), state.clone());
@@ -1658,4 +1635,125 @@ fn estimate_energy_joules(latency_ms: f64, bytes: f64) -> f64 {
 fn estimate_co2e_g(energy_j: f64, carbon_g_per_kwh: f64) -> f64 {
     let kwh = energy_j / 3_600_000.0;
     kwh * carbon_g_per_kwh
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_proxy() -> config::ProxyConfig {
+        let mut policy = config::RoutePolicy::default();
+        policy.carbon_cursor_enabled = true;
+        policy.route_class = "flexible".to_string();
+        policy.fail_safe_lowest_latency = true;
+
+        config::ProxyConfig {
+            app_name: "service".to_string(),
+            app_uri: "http://127.0.0.1:9999".to_string(),
+            zones: vec![
+                config::ZoneConfig {
+                    name: "zone-a".to_string(),
+                    app_uri: "http://127.0.0.1:5601".to_string(),
+                    region: Some("us-east".to_string()),
+                    base_rtt_ms: Some(20.0),
+                    cost_weight: Some(0.0),
+                    max_in_flight: None,
+                    tags: Vec::new(),
+                },
+                config::ZoneConfig {
+                    name: "zone-b".to_string(),
+                    app_uri: "http://127.0.0.1:5602".to_string(),
+                    region: Some("us-west".to_string()),
+                    base_rtt_ms: Some(10.0),
+                    cost_weight: Some(0.0),
+                    max_in_flight: None,
+                    tags: Vec::new(),
+                },
+            ],
+            override_file: None,
+            rule: config::ProxyRule {
+                path: "/test".to_string(),
+                r#type: "contain".to_string(),
+            },
+            rewrite: "none".to_string(),
+            policy,
+        }
+    }
+
+    fn classified_route() -> rilot_core::RoutePolicy {
+        rilot_core::RoutePolicy {
+            route_class: "flexible".to_string(),
+            carbon_cursor_enabled: true,
+            forecasting_enabled: false,
+            time_shift_enabled: false,
+            plugin_enabled: false,
+        }
+    }
+
+    fn carbon_cfg() -> config::CarbonProviderConfig {
+        let mut cfg = config::CarbonProviderConfig::default();
+        cfg.provider = "electricitymap-local".to_string();
+        cfg.zone_current.insert("zone-a".to_string(), 100.0);
+        cfg.zone_current.insert("zone-b".to_string(), 200.0);
+        cfg
+    }
+
+    #[test]
+    fn fail_safe_selects_lowest_latency_when_no_eligible_candidate() {
+        let mut proxy = test_proxy();
+        proxy.policy.constraints.p95_latency_budget_ms = Some(1.0);
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+
+        let decision = rt.block_on(async {
+            choose_zone(
+                &proxy,
+                &classified_route(),
+                &HashMap::new(),
+                &carbon_cfg(),
+                &AppState::new(),
+                &StaticState {
+                    zones_by_route: Arc::new(HashMap::new()),
+                },
+            )
+        });
+
+        let selected = decision.expect("expected fail-safe decision");
+        assert_eq!(selected.zone.name, "zone-b");
+        assert_eq!(
+            selected.filtered_out_reason.as_deref(),
+            Some("fallback-lowest-latency")
+        );
+    }
+
+    #[test]
+    fn score_tie_break_uses_config_order() {
+        let mut proxy = test_proxy();
+        proxy.policy.weights.w_carbon = 0.5;
+        proxy.policy.weights.w_latency = 0.5;
+        proxy.policy.weights.w_errors = 0.0;
+        proxy.policy.weights.w_cost = 0.0;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+
+        let decision = rt.block_on(async {
+            choose_zone(
+                &proxy,
+                &classified_route(),
+                &HashMap::new(),
+                &carbon_cfg(),
+                &AppState::new(),
+                &StaticState {
+                    zones_by_route: Arc::new(HashMap::new()),
+                },
+            )
+        });
+
+        let selected = decision.expect("expected tie-break decision");
+        assert_eq!(selected.zone.name, "zone-a");
+    }
 }

@@ -2,50 +2,50 @@
   "testNotes": {
     "scenario": "dynamic-local-carbon-signal",
     "source": "carbon-signal-api",
-    "tick": 79,
-    "generatedAtUtc": "2026-02-27T22:21:33.007Z",
+    "tick": 76,
+    "generatedAtUtc": "2026-03-10T16:14:43.152Z",
     "seed": 42
   },
   "zones": {
     "zone-01": {
-      "carbonIntensity": 133.887,
-      "carbonIntensityForecast": 137.915
+      "carbonIntensity": 308.453,
+      "carbonIntensityForecast": 266.158
     },
     "zone-02": {
-      "carbonIntensity": 300.195,
-      "carbonIntensityForecast": 249.884
+      "carbonIntensity": 363.024,
+      "carbonIntensityForecast": 344.376
     },
     "zone-03": {
-      "carbonIntensity": 574.935,
-      "carbonIntensityForecast": 611.824
+      "carbonIntensity": 568.474,
+      "carbonIntensityForecast": 528.99
     },
     "zone-04": {
-      "carbonIntensity": 553.695,
-      "carbonIntensityForecast": 500.602
+      "carbonIntensity": 700,
+      "carbonIntensityForecast": 700
     },
     "zone-05": {
-      "carbonIntensity": 331.725,
-      "carbonIntensityForecast": 354.333
+      "carbonIntensity": 325.62,
+      "carbonIntensityForecast": 355.966
     },
     "zone-06": {
-      "carbonIntensity": 402.457,
-      "carbonIntensityForecast": 350.061
+      "carbonIntensity": 533.984,
+      "carbonIntensityForecast": 506.227
     },
     "zone-07": {
-      "carbonIntensity": 473.264,
-      "carbonIntensityForecast": 482.118
+      "carbonIntensity": 563.452,
+      "carbonIntensityForecast": 599.258
     },
     "zone-08": {
-      "carbonIntensity": 448.134,
-      "carbonIntensityForecast": 468.792
+      "carbonIntensity": 598.063,
+      "carbonIntensityForecast": 632.516
     },
     "zone-09": {
-      "carbonIntensity": 288.589,
-      "carbonIntensityForecast": 313.804
+      "carbonIntensity": 424.663,
+      "carbonIntensityForecast": 450.541
     },
     "zone-10": {
-      "carbonIntensity": 564.383,
-      "carbonIntensityForecast": 520.049
+      "carbonIntensity": 658.907,
+      "carbonIntensityForecast": 673.655
     }
   }
 }
