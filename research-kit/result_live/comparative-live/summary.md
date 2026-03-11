@@ -1,6 +1,6 @@
 # Comparative Evaluation Summary
 
-- Generated at: `2026-02-27T22:21:33Z`
+- Generated at: `2026-03-10T16:14:43Z`
 - Route: `/heavy?burn_ms=40`
 - Metrics route filter: `/`
 - Config file: `config.live.dynamic.json`
@@ -16,19 +16,19 @@
 
 | scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | expected cross->green % | cpu % sample | cpu delta % | mem MB sample | mem delta MB | mean exposure g/kWh | exposure saved % | co2e saved % |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| carbon_first | 1.60% | 95.43 | 130.93 | +41.37 | 404 | 284 | 115 | 0.00% | 0.57 | +0.01 | 8.15 | +0.64 | 239.41 | +57.76% | +56.14% |
-  - dominant zone: `zone-09`; zone split: `{'zone-10': 48, 'zone-06': 156, 'zone-09': 434, 'zone-08': 5, 'zone-02': 225, 'zone-05': 72, 'zone-01': 44}`
-| balanced | 1.70% | 85.66 | 127.43 | +37.86 | 233 | 122 | 87 | 0.00% | 0.58 | +0.02 | 10.64 | +3.13 | 379.76 | +32.99% | +33.73% |
-  - dominant zone: `zone-06`; zone split: `{'zone-10': 98, 'zone-06': 199, 'zone-09': 195, 'zone-05': 132, 'zone-01': 137, 'zone-02': 147, 'zone-07': 51, 'zone-08': 5, 'zone-03': 19}`
-| latency_first | 1.30% | 74.26 | 88.68 | -0.89 | 0 | 0 | 0 | 0.00% | 0.59 | +0.02 | 7.73 | +0.22 | 482.95 | +14.79% | +17.00% |
-  - dominant zone: `zone-06`; zone split: `{'zone-10': 185, 'zone-01': 237, 'zone-02': 48, 'zone-07': 22, 'zone-09': 22, 'zone-06': 326, 'zone-05': 147}`
-| carbon_first_provider_timeout | 1.70% | 99.68 | 130.05 | +40.49 | 532 | 186 | 148 | 0.00% | 0.66 | +0.09 | 7.66 | +0.16 | 323.27 | +42.96% | +41.59% |
-  - dominant zone: `zone-09`; zone split: `{'zone-10': 193, 'zone-07': 150, 'zone-09': 199, 'zone-08': 198, 'zone-02': 12, 'zone-06': 198, 'zone-05': 33}`
-| explicit_cross_region_to_green | 1.20% | 93.41 | 130.79 | +41.23 | 354 | 208 | 71 | 0.00% | 0.55 | -0.02 | 8.61 | +1.10 | 263.74 | +53.47% | +51.14% |
-  - dominant zone: `zone-09`; zone split: `{'zone-10': 61, 'zone-06': 220, 'zone-09': 317, 'zone-08': 75, 'zone-01': 68, 'zone-02': 152, 'zone-05': 95}`
-| baseline_no_carbon_strict_local | 0.60% | 71.96 | 85.63 | -3.93 | 0 | 0 | 0 | 0.00% | 0.51 | -0.05 | 7.55 | +0.04 | 579.45 | -2.24% | +1.66% |
-  - dominant zone: `zone-05`; zone split: `{'zone-01': 496, 'zone-05': 498}`
-| baseline_no_carbon_latency_first | 1.20% | 72.18 | 85.88 | -3.69 | 0 | 0 | 0 | 0.00% | 0.57 | +0.00 | 7.76 | +0.25 | 575.52 | -1.54% | +2.22% |
-  - dominant zone: `zone-05`; zone split: `{'zone-01': 492, 'zone-05': 496}`
-| baseline_no_carbon_balanced | 1.50% | 74.78 | 89.56 | +0.00 | 0 | 0 | 0 | 0.00% | 0.57 | +0.00 | 7.51 | +0.00 | 566.77 | +0.00% | +0.00% |
-  - dominant zone: `zone-05`; zone split: `{'zone-01': 491, 'zone-05': 494}`
+| carbon_first | 0.70% | 95.97 | 131.24 | +45.19 | 422 | 265 | 121 | 0.00% | 0.61 | -0.01 | 10.20 | +1.92 | 243.21 | +58.78% | +55.17% |
+  - dominant zone: `zone-09`; zone split: `{'zone-10': 15, 'zone-06': 93, 'zone-09': 438, 'zone-02': 194, 'zone-08': 36, 'zone-01': 107, 'zone-05': 110}`
+| balanced | 1.20% | 91.39 | 128.82 | +42.76 | 382 | 111 | 148 | 0.00% | 0.63 | +0.01 | 8.45 | +0.17 | 389.09 | +34.05% | +32.11% |
+  - dominant zone: `zone-01`; zone split: `{'zone-10': 97, 'zone-06': 8, 'zone-09': 198, 'zone-05': 198, 'zone-01': 199, 'zone-02': 149, 'zone-07': 16, 'zone-08': 118, 'zone-03': 5}`
+| latency_first | 1.80% | 74.38 | 86.70 | +0.65 | 0 | 0 | 0 | 0.00% | 0.62 | -0.00 | 8.09 | -0.18 | 447.25 | +24.19% | +23.81% |
+  - dominant zone: `zone-09`; zone split: `{'zone-10': 266, 'zone-02': 221, 'zone-09': 363, 'zone-05': 132}`
+| carbon_first_provider_timeout | 1.40% | 93.67 | 130.86 | +44.81 | 391 | 99 | 99 | 0.00% | 0.69 | +0.07 | 7.68 | -0.60 | 349.59 | +40.74% | +37.00% |
+  - dominant zone: `zone-06`; zone split: `{'zone-10': 199, 'zone-07': 98, 'zone-09': 6, 'zone-08': 193, 'zone-02': 100, 'zone-06': 200, 'zone-05': 190}`
+| explicit_cross_region_to_green | 1.70% | 92.72 | 129.55 | +43.49 | 358 | 208 | 100 | 0.00% | 0.63 | +0.01 | 8.41 | +0.13 | 255.69 | +56.66% | +53.67% |
+  - dominant zone: `zone-09`; zone split: `{'zone-10': 32, 'zone-06': 172, 'zone-09': 269, 'zone-08': 50, 'zone-01': 55, 'zone-02': 269, 'zone-05': 136}`
+| baseline_no_carbon_strict_local | 1.10% | 72.47 | 86.35 | +0.29 | 0 | 0 | 0 | 0.00% | 0.56 | -0.06 | 7.21 | -1.07 | 587.75 | +0.38% | +0.26% |
+  - dominant zone: `zone-05`; zone split: `{'zone-01': 491, 'zone-05': 498}`
+| baseline_no_carbon_latency_first | 2.10% | 72.65 | 86.35 | +0.30 | 0 | 0 | 0 | 0.00% | 0.60 | -0.02 | 8.02 | -0.26 | 587.64 | +0.40% | -0.02% |
+  - dominant zone: `zone-05`; zone split: `{'zone-01': 484, 'zone-05': 495}`
+| baseline_no_carbon_balanced | 1.70% | 72.36 | 86.05 | +0.00 | 0 | 0 | 0 | 0.00% | 0.62 | +0.00 | 8.28 | +0.00 | 589.98 | +0.00% | +0.00% |
+  - dominant zone: `zone-05`; zone split: `{'zone-01': 488, 'zone-05': 495}`
