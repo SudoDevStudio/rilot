@@ -136,7 +136,7 @@ Machine-readable citation metadata is also available in `CITATION.cff`.
 
 ```bibtex
 @software{maninderpreet_singh_rilot_2026,
-  author = {Maninderpreet Singh},
+  author = {Maninderpreet Singh, Ranvir Kaur},
   title = {Rilot: Carbon Cursor Edge Routing},
   year = {2026},
   url = {https://github.com/SudoDevStudio/rilot}
