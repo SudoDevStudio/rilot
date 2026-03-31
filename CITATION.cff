@@ -3,11 +3,9 @@ message: "If you use Rilot in research, please cite it using the metadata below.
 title: "Rilot: Carbon Cursor Edge Routing"
 type: software
 authors:
-  - family-name: ""
-    given-names: "Maninderpreet Singh"
+  - given-names: "Maninderpreet Singh"
     email: "maninderpreetchanna@gmail.com"
-  - family-name: ""
-    given-names: "Ranvir Kaur"
+  - given-names: "Ranvir Kaur"
     email: "ranvir.kaurchanna@gmail.com"
 abstract: "Carbon Cursor edge routing proxy with multi-objective policies, Wasm extensibility, and carbon-aware observability."
 version: "0.5.0"
