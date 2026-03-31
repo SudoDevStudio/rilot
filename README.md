@@ -1,5 +1,9 @@
 # Rilot: Carbon Cursor Edge Routing Research Tool
 
+[![CI](https://github.com/SudoDevStudio/rilot/actions/workflows/ci.yml/badge.svg)](https://github.com/SudoDevStudio/rilot/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/SudoDevStudio/rilot/blob/main/LICENSE)
+[![Citation](https://img.shields.io/badge/Citation-CITATION.cff-blue.svg)](https://github.com/SudoDevStudio/rilot/blob/main/CITATION.cff)
+
 Rilot is an open-source Rust proxy for per-request carbon-aware routing at the HTTP edge.
 
 ## Highlights
