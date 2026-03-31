@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::env;
+use std::sync::Arc;
 mod config;
 mod proxy;
 mod wasm_engine;
@@ -30,7 +30,10 @@ async fn main() {
             match wasm_engine::preload_components(&override_paths) {
                 Ok(count) => log::info!("Preloaded {} Wasm component(s) into memory.", count),
                 Err(e) => {
-                    log::error!("Failed to preload Wasm components in production mode: {}", e);
+                    log::error!(
+                        "Failed to preload Wasm components in production mode: {}",
+                        e
+                    );
                     std::process::exit(1);
                 }
             }

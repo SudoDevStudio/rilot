@@ -35,6 +35,35 @@ This runs all scenario routes and prints:
 - carbon-safe calls
 - carbon-safe call ratio (%)
 
+## Readable policy-mode check
+
+If you just want a quick readable check for the three main policy routes:
+
+```bash
+python3 examples/scripts/test_policy_modes.py
+```
+
+That default run checks both `us-east` and `us-west`.
+
+If you want only one request region:
+
+```bash
+python3 examples/scripts/test_policy_modes.py --region us-east
+python3 examples/scripts/test_policy_modes.py --region us-west
+```
+
+This keeps the setup simple:
+
+- `balanced` -> `/search`
+- `latency-first` -> `/content`
+- `carbon-first` -> `/batch`
+
+If you also want the equivalent `curl` commands in the output:
+
+```bash
+python3 examples/scripts/test_policy_modes.py --region us-east --show-curl
+```
+
 ## Scenario routes (with `examples/config/config.json`)
 
 - `/checkout/*` -> strict-local route class

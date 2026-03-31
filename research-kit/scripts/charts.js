@@ -98,6 +98,18 @@ function parseNumber(v) {
   return Number.isFinite(n) ? n : null;
 }
 
+function formatDurationFromMs(totalMs) {
+  const safeMs = Number.isFinite(totalMs) ? Math.max(0, totalMs) : 0;
+  const totalSeconds = safeMs / 1000;
+  if (totalSeconds >= 3600) {
+    return `${(totalSeconds / 3600).toFixed(2)} h`;
+  }
+  if (totalSeconds >= 60) {
+    return `${(totalSeconds / 60).toFixed(2)} min`;
+  }
+  return `${totalSeconds.toFixed(2)} s`;
+}
+
 function latestComparativeDir(baseDir) {
   const entries = fs
     .readdirSync(baseDir, { withFileTypes: true })
@@ -116,10 +128,13 @@ function latestComparativeDir(baseDir) {
 
 function defaultResultsBase() {
   const root = path.resolve(__dirname, "..");
-  const live = path.join(root, "result_live");
+  const getResult = path.join(root, "get_result");
   const normal = path.join(root, "results");
-  if (fs.existsSync(live) && fs.readdirSync(live).some((n) => n.startsWith("comparative-"))) {
-    return live;
+  if (
+    fs.existsSync(getResult) &&
+    fs.readdirSync(getResult).some((n) => n.startsWith("comparative-"))
+  ) {
+    return getResult;
   }
   return normal;
 }
@@ -166,6 +181,11 @@ function buildHtml(payload) {
       padding: 8px 10px;
       font-size: 13px;
       color: var(--muted);
+    }
+    .badge.warn {
+      border-color: #d7b777;
+      background: #fff8e8;
+      color: #6b5620;
     }
     h1 {
       margin: 0 0 10px;
@@ -215,6 +235,8 @@ function buildHtml(payload) {
       <div class="badge">Generated: ${new Date().toISOString()}</div>
       <div class="badge">Scenarios: ${payload.summary.length}</div>
       <div class="badge">Requests: ${payload.requests.length}</div>
+      <div class="badge">Total Request Time: ${payload.totalExecutionLabel}</div>
+      ${payload.sampleWarning ? `<div class="badge warn">${payload.sampleWarning}</div>` : ""}
     </div>
 
     <div class="grid">
@@ -348,9 +370,16 @@ function buildHtml(payload) {
       const thead = t.append("thead").append("tr");
       cols.forEach(c => thead.append("th").text(c));
       const tbody = t.append("tbody");
+      function formatCell(col, value) {
+        if (value == null || value === "") return "";
+        if (col === "scenario") return value;
+        const n = Number(value);
+        if (Number.isFinite(n)) return n.toFixed(2);
+        return value;
+      }
       summary.forEach(row => {
         const tr = tbody.append("tr");
-        cols.forEach(c => tr.append("td").text(row[c] ?? ""));
+        cols.forEach(c => tr.append("td").text(formatCell(c, row[c])));
       });
     }
 
@@ -412,12 +441,31 @@ function main() {
         r.carbon_exposure_saved_percent_vs_baseline
       ),
     }));
-    const requests = readCsv(requestsPath);
+    const requests = readCsv(requestsPath).map((r) => ({
+      ...r,
+      latency_ms: parseNumber(r.latency_ms),
+    }));
+    const totalExecutionMs = requests.reduce(
+      (acc, row) => acc + (Number.isFinite(row.latency_ms) ? row.latency_ms : 0),
+      0
+    );
+    const perScenarioRequests = summary
+      .map((row) => row.requests)
+      .filter((value) => Number.isFinite(value) && value > 0);
+    const minScenarioRequests = perScenarioRequests.length
+      ? Math.min(...perScenarioRequests)
+      : null;
+    const sampleWarning =
+      minScenarioRequests != null && minScenarioRequests <= 20
+        ? `Small-sample run: with ${minScenarioRequests} requests per scenario, p95 behaves like a near-max latency value.`
+        : "";
 
     const html = buildHtml({
       inputDir,
       summary,
       requests,
+      totalExecutionLabel: formatDurationFromMs(totalExecutionMs),
+      sampleWarning,
     });
     const outPath = path.isAbsolute(args.outFile)
       ? args.outFile

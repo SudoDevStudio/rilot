@@ -13,7 +13,7 @@ Rilot is a reverse proxy that performs per-request routing with carbon-aware pol
 
 ## Request lifecycle
 
-1. Match request to route rule (`exact` or `contain`).
+1. Match request to route rule (`exact` or `prefix`; legacy `contain` remains an alias for `prefix`).
 2. Classify route behavior (`strict-local`, `flexible`, `background`) + per-request overrides.
 3. Build bounded candidate set from route zones and allowlists/tags.
 4. Read carbon signals from cache; trigger async refresh if stale.

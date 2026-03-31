@@ -1,0 +1,69 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="zone-10"} 1458
+carbon_safe_calls_total{route="/",zone="zone-10"} 0
+carbon_safe_call_ratio{route="/",zone="zone-10"} 0.00000000
+errors_total{route="/",zone="zone-10"} 35
+carbon_intensity_exposure_total{route="/",zone="zone-10"} 357245.00000000
+co2e_estimated_total{route="/",zone="zone-10"} 0.02023370
+energy_joules_estimated_total{route="/",zone="zone-10"} 297.28358217
+latency_ms_bucket{route="/",zone="zone-10",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="100"} 1458
+latency_ms_bucket{route="/",zone="zone-10",le="250"} 1458
+latency_ms_bucket{route="/",zone="zone-10",le="500"} 1458
+latency_ms_bucket{route="/",zone="zone-10",le="1000"} 1458
+latency_ms_bucket{route="/",zone="zone-10",le="2000"} 1458
+requests_total{route="/",zone="zone-06"} 1500
+carbon_safe_calls_total{route="/",zone="zone-06"} 0
+carbon_safe_call_ratio{route="/",zone="zone-06"} 0.00000000
+errors_total{route="/",zone="zone-06"} 23
+carbon_intensity_exposure_total{route="/",zone="zone-06"} 337500.00000000
+co2e_estimated_total{route="/",zone="zone-06"} 0.02413277
+energy_joules_estimated_total{route="/",zone="zone-06"} 386.12439180
+latency_ms_bucket{route="/",zone="zone-06",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-06",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-06",le="100"} 1500
+latency_ms_bucket{route="/",zone="zone-06",le="250"} 1500
+latency_ms_bucket{route="/",zone="zone-06",le="500"} 1500
+latency_ms_bucket{route="/",zone="zone-06",le="1000"} 1500
+latency_ms_bucket{route="/",zone="zone-06",le="2000"} 1500
+requests_total{route="/",zone="zone-02"} 34
+carbon_safe_calls_total{route="/",zone="zone-02"} 0
+carbon_safe_call_ratio{route="/",zone="zone-02"} 0.00000000
+errors_total{route="/",zone="zone-02"} 1
+carbon_intensity_exposure_total{route="/",zone="zone-02"} 11730.00000000
+co2e_estimated_total{route="/",zone="zone-02"} 0.00068434
+energy_joules_estimated_total{route="/",zone="zone-02"} 7.14091151
+latency_ms_bucket{route="/",zone="zone-02",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-02",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-02",le="100"} 34
+latency_ms_bucket{route="/",zone="zone-02",le="250"} 34
+latency_ms_bucket{route="/",zone="zone-02",le="500"} 34
+latency_ms_bucket{route="/",zone="zone-02",le="1000"} 34
+latency_ms_bucket{route="/",zone="zone-02",le="2000"} 34
+requests_total{route="/",zone="zone-01"} 8
+carbon_safe_calls_total{route="/",zone="zone-01"} 0
+carbon_safe_call_ratio{route="/",zone="zone-01"} 0.00000000
+errors_total{route="/",zone="zone-01"} 1
+carbon_intensity_exposure_total{route="/",zone="zone-01"} 2880.00000000
+co2e_estimated_total{route="/",zone="zone-01"} 0.00015834
+energy_joules_estimated_total{route="/",zone="zone-01"} 1.58337838
+latency_ms_bucket{route="/",zone="zone-01",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="100"} 8
+latency_ms_bucket{route="/",zone="zone-01",le="250"} 8
+latency_ms_bucket{route="/",zone="zone-01",le="500"} 8
+latency_ms_bucket{route="/",zone="zone-01",le="1000"} 8
+latency_ms_bucket{route="/",zone="zone-01",le="2000"} 8
+carbon_intensity_g_per_kwh{zone="zone-06"} 225.000000
+carbon_intensity_g_per_kwh{zone="zone-01"} 360.000000
+carbon_intensity_g_per_kwh{zone="zone-10"} 245.000000
+carbon_intensity_g_per_kwh{zone="zone-02"} 345.000000

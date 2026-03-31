@@ -1,108 +1,145 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("fs");
 const http = require("http");
+const fs = require("fs");
 const path = require("path");
 const { URL } = require("url");
 
 const PORT = Number(process.env.CARBON_API_PORT || 18181);
-const OUT_FILE = process.env.CARBON_API_OUT_FILE || path.resolve(__dirname, "../carbon-traces/electricitymap-dynamic.json");
-const UPDATE_SECONDS = Math.max(1, Number(process.env.CARBON_API_UPDATE_SECONDS || 15));
-const JITTER_G = Math.max(0, Number(process.env.CARBON_API_JITTER_G || 40));
-const FORECAST_JITTER_G = Math.max(0, Number(process.env.CARBON_API_FORECAST_JITTER_G || 30));
-const MIN_G = Math.max(0, Number(process.env.CARBON_API_MIN_G || 50));
-const MAX_G = Math.max(MIN_G + 1, Number(process.env.CARBON_API_MAX_G || 900));
-const BASE_ZONES = process.env.CARBON_API_BASE_ZONES || "us-east:430,us-west:300";
-const SEED = Number(process.env.CARBON_API_SEED || 42);
+const OUT_FILE = (process.env.CARBON_API_OUT_FILE || "").trim();
+const SOURCE_CSV = (process.env.CARBON_API_SOURCE_CSV || "").trim();
+const ZONE_ALIASES = process.env.CARBON_API_ZONE_ALIASES || "";
 
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
+if (!SOURCE_CSV) {
+  process.stderr.write(
+    "Missing CARBON_API_SOURCE_CSV. This server is CSV-only and requires a source CSV file.\n"
+  );
+  process.exit(1);
+}
+if (!fs.existsSync(SOURCE_CSV) || !fs.statSync(SOURCE_CSV).isFile()) {
+  process.stderr.write(`Missing CARBON_API_SOURCE_CSV file: ${SOURCE_CSV}\n`);
+  process.exit(1);
 }
 
-function parseBaseZones(raw) {
+function parseZoneAliases(raw) {
   const out = {};
   for (const part of raw.split(",")) {
     const item = part.trim();
     if (!item || !item.includes(":")) continue;
-    const [name, value] = item.split(":", 2);
-    const zone = name.trim();
-    const base = Number(value.trim());
-    if (!zone || !Number.isFinite(base)) continue;
-    out[zone] = base;
-  }
-  if (Object.keys(out).length === 0) {
-    out["us-east"] = 430;
-    out["us-west"] = 300;
+    const [externalZone, internalZone] = item.split(":", 2);
+    const ext = externalZone.trim();
+    const internal = internalZone.trim();
+    if (!ext || !internal) continue;
+    out[ext] = internal;
   }
   return out;
 }
 
-function mulberry32(seed) {
-  let t = seed >>> 0;
-  return function next() {
-    t += 0x6d2b79f5;
-    let x = Math.imul(t ^ (t >>> 15), 1 | t);
-    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
-    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-const base = parseBaseZones(BASE_ZONES);
-const state = {};
-let rand = mulberry32(SEED);
-let ticks = 0;
-let snapshot = null;
-
-function resetState() {
-  for (const k of Object.keys(state)) {
-    delete state[k];
+function csvToRows(text) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    const next = text[i + 1];
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (ch === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+      continue;
+    }
+    if ((ch === "\n" || ch === "\r") && !inQuotes) {
+      if (ch === "\r" && next === "\n") {
+        i += 1;
+      }
+      row.push(cell);
+      const isEmpty = row.length === 1 && row[0] === "";
+      if (!isEmpty) {
+        rows.push(row);
+      }
+      row = [];
+      cell = "";
+      continue;
+    }
+    cell += ch;
   }
-  for (const [zone, value] of Object.entries(base)) {
-    state[zone] = value;
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
   }
-  rand = mulberry32(SEED);
-  ticks = 0;
+  return rows;
 }
 
-function nextSigned(amplitude) {
-  return (rand() * 2 - 1) * amplitude;
+function parseCsvObjects(text) {
+  const rows = csvToRows(text);
+  if (!rows.length) {
+    return [];
+  }
+  const headers = rows[0];
+  return rows.slice(1).map((r) => {
+    const obj = {};
+    headers.forEach((h, idx) => {
+      obj[h] = r[idx] ?? "";
+    });
+    return obj;
+  });
 }
 
-function buildSnapshot() {
-  ticks += 1;
+function parseFiniteNumber(raw) {
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildSnapshotFromCsv(csvPath) {
+  const raw = fs.readFileSync(csvPath, "utf8");
+  const rows = parseCsvObjects(raw);
   const zones = {};
-  for (const zone of Object.keys(state)) {
-    const drift = nextSigned(JITTER_G);
-    const trend = Math.sin((ticks / 8) + zone.length) * (JITTER_G * 0.35);
-    const current = clamp(state[zone] + drift + trend, MIN_G, MAX_G);
-    state[zone] = current;
-
-    const forecast = clamp(
-      current + nextSigned(FORECAST_JITTER_G) - (Math.sin(ticks / 10) * 8),
-      MIN_G,
-      MAX_G
-    );
-
+  let rowCount = 0;
+  for (const row of rows) {
+    const zone = String(row.zone || "").trim();
+    const current = parseFiniteNumber(row.carbonIntensity);
+    if (!zone || current == null) {
+      continue;
+    }
+    const forecastRaw = parseFiniteNumber(row.carbonIntensityForecast);
+    const forecast = forecastRaw == null ? current : forecastRaw;
+    const datetimeRaw = String(row.datetime || "").trim();
     zones[zone] = {
       carbonIntensity: Number(current.toFixed(3)),
       carbonIntensityForecast: Number(forecast.toFixed(3)),
+      datetime: datetimeRaw || null,
     };
+    rowCount += 1;
   }
-
+  if (!Object.keys(zones).length) {
+    throw new Error(`No valid zone rows found in CSV: ${csvPath}`);
+  }
   return {
     testNotes: {
-      scenario: "dynamic-local-carbon-signal",
+      scenario: "static-csv-carbon-signal",
       source: "carbon-signal-api",
-      tick: ticks,
       generatedAtUtc: new Date().toISOString(),
-      seed: SEED,
+      sourceCsv: csvPath,
+      rowCount,
     },
     zones,
   };
 }
 
 function writeSnapshotFile(obj) {
+  if (!OUT_FILE) {
+    return;
+  }
   const dir = path.dirname(OUT_FILE);
   fs.mkdirSync(dir, { recursive: true });
   const tmp = `${OUT_FILE}.tmp`;
@@ -110,27 +147,39 @@ function writeSnapshotFile(obj) {
   fs.renameSync(tmp, OUT_FILE);
 }
 
+const aliases = parseZoneAliases(ZONE_ALIASES);
+let snapshot = null;
+const mode = "static-csv";
+
 function refresh() {
-  snapshot = buildSnapshot();
+  snapshot = buildSnapshotFromCsv(SOURCE_CSV);
   writeSnapshotFile(snapshot);
 }
 
-resetState();
 refresh();
-const timer = setInterval(refresh, UPDATE_SECONDS * 1000);
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url || "/", "http://localhost");
   if (url.pathname === "/health") {
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, outFile: OUT_FILE, updateSeconds: UPDATE_SECONDS }) + "\n");
+    res.end(
+      JSON.stringify({
+        ok: true,
+        outFile: OUT_FILE || null,
+        mode,
+        sourceCsv: SOURCE_CSV,
+        aliasCount: Object.keys(aliases).length,
+      }) + "\n"
+    );
     return;
   }
+
   if (url.pathname === "/latest") {
     res.writeHead(200, { "content-type": "application/json" });
     res.end(JSON.stringify(snapshot || {}, null, 2) + "\n");
     return;
   }
+
   if (url.pathname === "/v3/carbon-intensity/latest") {
     const zone = (url.searchParams.get("zone") || "").trim();
     if (!zone) {
@@ -138,42 +187,48 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ error: "zone_required" }) + "\n");
       return;
     }
-    const z = snapshot && snapshot.zones ? snapshot.zones[zone] : null;
+    const mappedZone = aliases[zone] || "";
+    const direct = snapshot && snapshot.zones ? snapshot.zones[zone] : null;
+    const aliased = mappedZone && snapshot && snapshot.zones ? snapshot.zones[mappedZone] : null;
+    const z = direct || aliased;
     if (!z) {
       res.writeHead(404, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "zone_not_found", zone }) + "\n");
+      res.end(JSON.stringify({ error: "zone_not_found", zone, mappedZone }) + "\n");
       return;
     }
+    const body = {
+      zone,
+      carbonIntensity: z.carbonIntensity,
+      carbonIntensityForecast: z.carbonIntensityForecast,
+      datetime: z.datetime || new Date().toISOString(),
+    };
+    if (!direct && aliased && mappedZone && mappedZone !== zone) {
+      body.mappedZone = mappedZone;
+    }
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(
-      JSON.stringify({
-        zone,
-        carbonIntensity: z.carbonIntensity,
-        carbonIntensityForecast: z.carbonIntensityForecast,
-        datetime: new Date().toISOString(),
-      }) + "\n"
-    );
+    res.end(JSON.stringify(body) + "\n");
     return;
   }
+
   if (url.pathname === "/reset") {
-    resetState();
     refresh();
     res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, reset: true, tick: ticks }) + "\n");
+    res.end(JSON.stringify({ ok: true, reset: true, mode }) + "\n");
     return;
   }
+
   res.writeHead(404, { "content-type": "application/json" });
   res.end(JSON.stringify({ error: "not_found" }) + "\n");
 });
 
 server.listen(PORT, "0.0.0.0", () => {
+  const outMode = OUT_FILE ? `writing ${OUT_FILE}` : "in-memory mode (no snapshot file)";
   process.stdout.write(
-    `carbon-signal-api listening on 0.0.0.0:${PORT}, writing ${OUT_FILE}, every ${UPDATE_SECONDS}s\n`
+    `carbon-signal-api listening on 0.0.0.0:${PORT}, ${outMode}, mode=static-csv, source=${SOURCE_CSV}\n`
   );
 });
 
 function shutdown() {
-  clearInterval(timer);
   server.close(() => process.exit(0));
 }
 

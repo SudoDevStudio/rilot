@@ -40,7 +40,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/checkout",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {
@@ -93,7 +93,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/search",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {
@@ -157,7 +157,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/content",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {
@@ -222,7 +222,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/batch",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {
@@ -288,7 +288,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/plugin-energy",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {
@@ -351,7 +351,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {

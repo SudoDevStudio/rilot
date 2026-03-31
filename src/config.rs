@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct ProxyRule {
@@ -65,7 +65,7 @@ pub struct RoutePolicy {
     #[serde(default)]
     pub constraints: PolicyConstraints,
     #[serde(default)]
-    pub weights: PolicyWeights,
+    pub weights: Option<PolicyWeights>,
     #[serde(default = "default_false")]
     pub forecasting_enabled: bool,
     #[serde(default = "default_false")]
@@ -157,16 +157,37 @@ pub struct Config {
 }
 
 fn default_rule_type() -> String {
-    "contain".to_string()
+    "prefix".to_string()
 }
 
 use std::fs;
 
 pub fn load_config(path: &str) -> Config {
     let data = fs::read_to_string(path).expect("Failed to read config.json");
-    serde_json::from_str(&data).expect("Failed to parse config.json")
+    let cfg: Config = serde_json::from_str(&data).expect("Failed to parse config.json");
+    validate_config(&cfg).unwrap_or_else(|err| panic!("Invalid config.json: {}", err));
+    cfg
 }
 
+fn validate_config(cfg: &Config) -> Result<(), String> {
+    let mut seen_paths = HashSet::new();
+    let mut duplicates = Vec::new();
+    for proxy in &cfg.proxies {
+        if !seen_paths.insert(proxy.rule.path.clone()) {
+            duplicates.push(proxy.rule.path.clone());
+        }
+    }
+    if duplicates.is_empty() {
+        return Ok(());
+    }
+
+    duplicates.sort();
+    duplicates.dedup();
+    Err(format!(
+        "duplicate proxy rule.path entries are not allowed: {}",
+        duplicates.join(", ")
+    ))
+}
 
 fn default_rewrite_mode() -> String {
     "none".to_string()
@@ -204,7 +225,7 @@ impl Default for RoutePolicy {
             route_class: default_route_class(),
             priority_mode: default_priority_mode(),
             constraints: PolicyConstraints::default(),
-            weights: PolicyWeights::default(),
+            weights: None,
             forecasting_enabled: default_false(),
             time_shift_enabled: default_false(),
             forecast_window_minutes: default_forecast_minutes(),
@@ -333,6 +354,60 @@ fn default_decision_log_sample_rate() -> f64 {
 
 fn default_rollup_interval_secs() -> u64 {
     60
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_config(json: &str) -> Config {
+        serde_json::from_str(json).expect("config json")
+    }
+
+    #[test]
+    fn validate_config_allows_unique_rule_paths() {
+        let cfg = parse_config(
+            r#"{
+              "proxies": [
+                {
+                  "app_name": "a",
+                  "app_uri": "http://a",
+                  "rule": {"path": "/a", "type": "prefix"}
+                },
+                {
+                  "app_name": "b",
+                  "app_uri": "http://b",
+                  "rule": {"path": "/b", "type": "prefix"}
+                }
+              ]
+            }"#,
+        );
+
+        assert!(validate_config(&cfg).is_ok());
+    }
+
+    #[test]
+    fn validate_config_rejects_duplicate_rule_paths() {
+        let cfg = parse_config(
+            r#"{
+              "proxies": [
+                {
+                  "app_name": "a",
+                  "app_uri": "http://a",
+                  "rule": {"path": "/api", "type": "prefix"}
+                },
+                {
+                  "app_name": "b",
+                  "app_uri": "http://b",
+                  "rule": {"path": "/api", "type": "exact"}
+                }
+              ]
+            }"#,
+        );
+
+        let err = validate_config(&cfg).expect_err("duplicate rule.path should fail");
+        assert!(err.contains("/api"));
+    }
 }
 
 fn default_max_candidates() -> usize {

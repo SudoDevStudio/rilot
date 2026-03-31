@@ -9,6 +9,15 @@ pub struct PolicyWeights {
     pub w_cost: f64,
 }
 
+pub fn balanced_weights() -> PolicyWeights {
+    PolicyWeights {
+        w_carbon: 0.50,
+        w_latency: 0.35,
+        w_errors: 0.15,
+        w_cost: 0.0,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutePolicy {
     pub route_class: String,
@@ -24,7 +33,6 @@ pub fn classify_route(defaults: &RoutePolicy, headers: &HashMap<String, String>)
     if route_class.is_empty() {
         route_class = "flexible".to_string();
     }
-
     let mut result = RoutePolicy {
         route_class,
         carbon_cursor_enabled: bool_override(
@@ -53,7 +61,14 @@ pub fn classify_route(defaults: &RoutePolicy, headers: &HashMap<String, String>)
     result
 }
 
-pub fn effective_weights(priority_mode: &str, default_weights: PolicyWeights) -> PolicyWeights {
+pub fn effective_weights(
+    priority_mode: &str,
+    configured_weights: Option<PolicyWeights>,
+) -> PolicyWeights {
+    if let Some(weights) = configured_weights {
+        return weights;
+    }
+
     match priority_mode {
         "latency-first" => PolicyWeights {
             w_carbon: 0.15,
@@ -67,7 +82,8 @@ pub fn effective_weights(priority_mode: &str, default_weights: PolicyWeights) ->
             w_errors: 0.10,
             w_cost: 0.0,
         },
-        _ => default_weights,
+        "custom" | "balanced" => balanced_weights(),
+        _ => balanced_weights(),
     }
 }
 
@@ -100,4 +116,32 @@ mod tests {
         assert!(!out.plugin_enabled);
         assert!(!out.time_shift_enabled);
     }
+
+    #[test]
+    fn explicit_weights_override_priority_mode_presets() {
+        let weights = PolicyWeights {
+            w_carbon: 1.0,
+            w_latency: 0.0,
+            w_errors: 0.0,
+            w_cost: 0.0,
+        };
+
+        let out = effective_weights("latency-first", Some(weights.clone()));
+
+        assert_eq!(out.w_carbon, weights.w_carbon);
+        assert_eq!(out.w_latency, weights.w_latency);
+        assert_eq!(out.w_errors, weights.w_errors);
+        assert_eq!(out.w_cost, weights.w_cost);
+    }
+
+    #[test]
+    fn custom_mode_without_explicit_weights_uses_balanced_defaults() {
+        let out = effective_weights("custom", None);
+
+        assert_eq!(out.w_carbon, 0.50);
+        assert_eq!(out.w_latency, 0.35);
+        assert_eq!(out.w_errors, 0.15);
+        assert_eq!(out.w_cost, 0.0);
+    }
+
 }

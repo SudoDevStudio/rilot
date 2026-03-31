@@ -1,0 +1,24 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="zone-10"} 3000
+carbon_safe_calls_total{route="/",zone="zone-10"} 0
+carbon_safe_call_ratio{route="/",zone="zone-10"} 0.00000000
+errors_total{route="/",zone="zone-10"} 72
+carbon_intensity_exposure_total{route="/",zone="zone-10"} 840000.00000000
+co2e_estimated_total{route="/",zone="zone-10"} 0.04763709
+energy_joules_estimated_total{route="/",zone="zone-10"} 612.47683657
+latency_ms_bucket{route="/",zone="zone-10",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="100"} 3000
+latency_ms_bucket{route="/",zone="zone-10",le="250"} 3000
+latency_ms_bucket{route="/",zone="zone-10",le="500"} 3000
+latency_ms_bucket{route="/",zone="zone-10",le="1000"} 3000
+latency_ms_bucket{route="/",zone="zone-10",le="2000"} 3000
+carbon_intensity_g_per_kwh{zone="zone-10"} 280.000000

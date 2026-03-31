@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="zone-01"} 1500
+carbon_safe_calls_total{route="/",zone="zone-01"} 0
+carbon_safe_call_ratio{route="/",zone="zone-01"} 0.00000000
+errors_total{route="/",zone="zone-01"} 35
+carbon_intensity_exposure_total{route="/",zone="zone-01"} 540120.00000000
+co2e_estimated_total{route="/",zone="zone-01"} 0.02825725
+energy_joules_estimated_total{route="/",zone="zone-01"} 282.51027926
+latency_ms_bucket{route="/",zone="zone-01",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-01",le="100"} 1499
+latency_ms_bucket{route="/",zone="zone-01",le="250"} 1500
+latency_ms_bucket{route="/",zone="zone-01",le="500"} 1500
+latency_ms_bucket{route="/",zone="zone-01",le="1000"} 1500
+latency_ms_bucket{route="/",zone="zone-01",le="2000"} 1500
+requests_total{route="/",zone="zone-05"} 1500
+carbon_safe_calls_total{route="/",zone="zone-05"} 0
+carbon_safe_call_ratio{route="/",zone="zone-05"} 0.00000000
+errors_total{route="/",zone="zone-05"} 19
+carbon_intensity_exposure_total{route="/",zone="zone-05"} 502500.00000000
+co2e_estimated_total{route="/",zone="zone-05"} 0.03322694
+energy_joules_estimated_total{route="/",zone="zone-05"} 357.06557989
+latency_ms_bucket{route="/",zone="zone-05",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-05",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-05",le="100"} 1500
+latency_ms_bucket{route="/",zone="zone-05",le="250"} 1500
+latency_ms_bucket{route="/",zone="zone-05",le="500"} 1500
+latency_ms_bucket{route="/",zone="zone-05",le="1000"} 1500
+latency_ms_bucket{route="/",zone="zone-05",le="2000"} 1500
+carbon_intensity_g_per_kwh{zone="zone-05"} 335.000000
+carbon_intensity_g_per_kwh{zone="zone-01"} 360.000000

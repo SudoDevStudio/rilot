@@ -34,7 +34,7 @@ Rilot reads provider data through async refresh and cache. Requests do not block
 
 ## Offline ElectricityMap-style testing
 
-Use local fixture mode when you want deterministic behavior without calling the public API:
+Use standalone fixture mode when you want deterministic behavior without calling the public API from a regular config:
 
 1. Set `carbon.provider` to `electricitymap-local`.
 2. Set `carbon.electricitymap_local_fixture` to a JSON file path.
@@ -44,14 +44,14 @@ Fixture file example is included at:
 
 - `research-kit/carbon-traces/electricitymap-latest-sample.json`
 
-For dynamic ElectricityMap-compatible testing, run:
+For local ElectricityMap-compatible testing, run:
 
 ```bash
 cd research-kit
-./scripts/run_live_experiment.sh
+./scripts/run_comparative_experiment.sh
 ```
 
-This starts `scripts/carbon-signal-api.js` and exposes ElectricityMap-compatible `/v3/carbon-intensity/latest` responses locally.
+This research workflow is separate from `electricitymap-local` fixture mode. It starts `scripts/carbon-signal-api.js`, keeps `carbon.provider=electricitymap`, and serves ElectricityMap-compatible `/v3/carbon-intensity/latest` responses locally from a fixed CSV source.
 
 ## Docker run
 
@@ -66,20 +66,27 @@ Endpoints:
 - Metrics: `http://127.0.0.1:8080/metrics`
 - Prometheus: `http://127.0.0.1:9090`
 
-## Live-profile experiment run
+## Comparative experiment run
 
 ```bash
 cd research-kit
-./scripts/run_live_experiment.sh
+./scripts/run_comparative_experiment.sh
 ```
 
 Defaults:
 
-- 10-zone profile from `config.live.json` (rewritten to dynamic temp config for the run)
-- dynamic local carbon API range `100..700`
-- provider cache disabled for experiment (`carbon.cache_ttl_seconds=0`)
+- 10-zone profile from `config.live.json` (rewritten to temp config for the run)
+- total request target `50000` (`25000` per region)
+- fixed local carbon source CSV: `research-kit/carbon-traces/electricitymap-sandbox-20260328T2000Z.csv`
+- provider cache minimum `5s` for experiment (`carbon.cache_ttl_seconds>=5`)
+- coverage-derived Electricity Maps zone aliases from `research-kit/2026-03-29-electricity-maps-coverage-data.csv` when present
+- CSV-only local ElectricityMap-compatible provider (`scripts/carbon-signal-api.js`) is used for signals
+- API serves data in-memory by default (optional snapshot write via `CARBON_API_OUT_FILE`)
 - cross-region latency emulation enabled (`RILOT_EMULATE_CROSS_REGION_RTT=true`)
-- stable output folder: `research-kit/result_live/comparative-live/`
+- stable output folder: `research-kit/get_result/comparative-results/`
+
+If both `TOTAL_REQUESTS` and `REQUESTS_PER_REGION` are set, the runner uses `REQUESTS_PER_REGION`.
+The runner refreshes the `research-kit/get_result/` workspace at the start of each run.
 
 ## Health and validation checklist
 
@@ -93,7 +100,8 @@ Defaults:
 ### No matching route
 
 - Confirm `rule.path` and `rule.type` in config.
-- Ensure request path uses expected prefix for `contain` rules.
+- Ensure each `rule.path` is unique across `proxies[]`.
+- Ensure request path uses expected prefix for `prefix` rules (`contain` is a legacy alias).
 
 ### No carbon-aware behavior
 

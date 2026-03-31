@@ -7,9 +7,10 @@ Rilot is an open-source Rust proxy for per-request carbon-aware routing at the H
 - Carbon Cursor routing pipeline: classify, constrain, signal, score.
 - Region-first routing (`x-user-region`) with per-zone metadata.
 - Built-in multi-objective policy modes and route classes.
+- Explicit policy weights that override built-in mode presets when provided.
 - Per-route feature toggles for carbon, forecasting, time-shift, and plugins.
 - Wasm extensibility for custom routing and energy overrides.
-- Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and `electricitymap-local`.
+- Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and standalone fixture-backed `electricitymap-local`.
 - Prometheus metrics, decision logs, and periodic rollups.
 - Shared policy crate: `crates/rilot-core` for future adapter targets.
 - Reproducible comparative evaluation kit in `research-kit/`.
@@ -56,13 +57,17 @@ For local/offline testing, use:
 
 `carbon.cache_ttl_seconds` is the only cache TTL setting.
 
+The research kit uses a separate local ElectricityMap-compatible API backed by a fixed CSV snapshot(ElectricityMap Sandbox data), so comparative runs do not require live external carbon API calls unless you explicitly override the provider.
+
 ## Docker research quickstart
 
 ```bash
 cd research-kit
 docker compose up --build -d
-./scripts/run_live_experiment.sh
+./scripts/run_comparative_experiment.sh
 ```
+
+The primary runner writes refreshed outputs to `research-kit/get_result/comparative-results/`.
 
 The generated `summary.md` includes explicit trade-off deltas versus baseline:
 
@@ -75,10 +80,10 @@ The generated `summary.md` includes explicit trade-off deltas versus baseline:
 
 Optional stronger-evidence runs:
 
-- `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_live_experiment.sh` (provider-timeout robustness)
+- `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_comparative_experiment.sh` (provider-timeout robustness)
 - `python3 ./scripts/run_weight_sensitivity.py` (policy weight sensitivity)
 - `node ./scripts/charts.js` (interactive charts from latest comparative run; writes `charts.html`)
-- `./scripts/run_live_experiment.sh` (10-zone live-profile run, stable output at `result_live/comparative-live/`)
+- `REQUESTS_PER_REGION=1500 ./scripts/run_comparative_experiment.sh` (smaller reproducible check run)
 
 ## Core docs
 
@@ -114,10 +119,10 @@ Optional stronger-evidence runs:
 
 All code, configuration, and experiment scripts required to reproduce the reported results are included in this repository.
 
-- Comparative evaluation scripts: `research-kit/scripts/run_live_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
+- Comparative evaluation scripts: `research-kit/scripts/run_comparative_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
 - Sensitivity analysis script: `research-kit/scripts/run_weight_sensitivity.py`
 - Experiment configuration and traces: `research-kit/config.live.json`, `research-kit/carbon-traces/`
-- Generated artifacts: `research-kit/result_live/comparative-live/` (summary tables, per-request CSV, Prometheus snapshots, charts)
+- Generated artifacts: `research-kit/get_result/comparative-results/` (summary tables, per-request CSV, Prometheus snapshots, charts)
 
 ## License
 
@@ -126,6 +131,8 @@ MIT
 ## How to Cite
 
 If you use Rilot in research, please cite:
+
+Machine-readable citation metadata is also available in `CITATION.cff`.
 
 ```bibtex
 @software{maninderpreet_singh_rilot_2026,

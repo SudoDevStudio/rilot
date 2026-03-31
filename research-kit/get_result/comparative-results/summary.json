@@ -1,0 +1,260 @@
+[
+  {
+    "scenario": "carbon_first",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2974,
+    "error_count": 26,
+    "error_rate_percent": 0.8666666666666666,
+    "latency_avg_ms": 107.57794226597373,
+    "latency_p95_ms": 134.34779201634228,
+    "carbon_exposure_mean_g_per_kwh": 225.0184936112979,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.047241899999999996,
+    "cpu_percent_sample": 0.6335160223876948,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 9.33203125,
+    "memory_current_mb_sample": 9.17578125,
+    "memory_peak_delta_mb": 1.9765625,
+    "zone_counts": {
+      "zone-10": 1,
+      "zone-06": 2973
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-06": 2999.0,
+      "zone-10": 1.0
+    },
+    "cross_region_reroutes": 1488,
+    "east_to_west_reroutes": 1488,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 1488,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "balanced",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2940,
+    "error_count": 60,
+    "error_rate_percent": 2.0,
+    "latency_avg_ms": 78.32406012607196,
+    "latency_p95_ms": 93.92825001850724,
+    "carbon_exposure_mean_g_per_kwh": 236.36054421768708,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.045209150000000003,
+    "cpu_percent_sample": 0.7492640273427609,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 8.7109375,
+    "memory_current_mb_sample": 7.68359375,
+    "memory_peak_delta_mb": 0.94140625,
+    "zone_counts": {
+      "zone-10": 1423,
+      "zone-02": 33,
+      "zone-01": 7,
+      "zone-06": 1477
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-06": 1500.0,
+      "zone-02": 34.0,
+      "zone-01": 8.0,
+      "zone-10": 1458.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "latency_first",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2967,
+    "error_count": 33,
+    "error_rate_percent": 1.0999999999999999,
+    "latency_avg_ms": 74.56262648674117,
+    "latency_p95_ms": 89.77341599529609,
+    "carbon_exposure_mean_g_per_kwh": 347.4603977081227,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.06327332,
+    "cpu_percent_sample": 0.7903766756250912,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 9.19921875,
+    "memory_current_mb_sample": 8.2578125,
+    "memory_peak_delta_mb": 1.10546875,
+    "zone_counts": {
+      "zone-01": 1474,
+      "zone-05": 1493
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-05": 1500.0,
+      "zone-01": 1500.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "carbon_first_provider_timeout",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2928,
+    "error_count": 72,
+    "error_rate_percent": 2.4,
+    "latency_avg_ms": 92.91253718083802,
+    "latency_p95_ms": 123.3805000083521,
+    "carbon_exposure_mean_g_per_kwh": 280.0,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.04763709,
+    "cpu_percent_sample": 0.9031081173429094,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 7.9296875,
+    "memory_current_mb_sample": 7.05859375,
+    "memory_peak_delta_mb": 0.0,
+    "zone_counts": {
+      "zone-10": 2928
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-10": 3000.0
+    },
+    "cross_region_reroutes": 1462,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 1462,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "explicit_cross_region_to_green",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2976,
+    "error_count": 24,
+    "error_rate_percent": 0.8,
+    "latency_avg_ms": 108.99924506410025,
+    "latency_p95_ms": 140.66066598752514,
+    "carbon_exposure_mean_g_per_kwh": 225.0184811827957,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.04768012,
+    "cpu_percent_sample": 0.6235951257995391,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 9.01171875,
+    "memory_current_mb_sample": 8.8203125,
+    "memory_peak_delta_mb": 1.96875,
+    "zone_counts": {
+      "zone-10": 1,
+      "zone-06": 2975
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-06": 2999.0,
+      "zone-10": 1.0
+    },
+    "cross_region_reroutes": 1487,
+    "east_to_west_reroutes": 1487,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 1487,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "baseline_no_carbon_strict_local",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2952,
+    "error_count": 48,
+    "error_rate_percent": 1.6,
+    "latency_avg_ms": 72.78881489027602,
+    "latency_p95_ms": 86.5832080016844,
+    "carbon_exposure_mean_g_per_kwh": 347.4830623306233,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.06177992,
+    "cpu_percent_sample": 0.7598258591667073,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 7.55859375,
+    "memory_current_mb_sample": 5.7265625,
+    "memory_peak_delta_mb": 0.0,
+    "zone_counts": {
+      "zone-01": 1467,
+      "zone-05": 1485
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-05": 1500.0,
+      "zone-01": 1500.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "baseline_no_carbon_latency_first",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2949,
+    "error_count": 51,
+    "error_rate_percent": 1.7000000000000002,
+    "latency_avg_ms": 74.06398867247238,
+    "latency_p95_ms": 86.96087502175942,
+    "carbon_exposure_mean_g_per_kwh": 347.46015598507967,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.06277956,
+    "cpu_percent_sample": 0.8724665498914301,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 8.984375,
+    "memory_current_mb_sample": 9.09375,
+    "memory_peak_delta_mb": 1.79296875,
+    "zone_counts": {
+      "zone-01": 1465,
+      "zone-05": 1484
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-05": 1500.0,
+      "zone-01": 1500.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  },
+  {
+    "scenario": "baseline_no_carbon_balanced",
+    "kind": "rilot_mode",
+    "requests": 3000,
+    "ok_count": 2946,
+    "error_count": 54,
+    "error_rate_percent": 1.7999999999999998,
+    "latency_avg_ms": 72.57489134218001,
+    "latency_p95_ms": 85.9840419725515,
+    "carbon_exposure_mean_g_per_kwh": 347.4728445349627,
+    "carbon_exposure_mean_source": "request_headers",
+    "co2e_estimated_total_g": 0.06148419000000001,
+    "cpu_percent_sample": 0.9093578543002889,
+    "cpu_sample_method": "cgroup_delta",
+    "memory_mb_sample": 8.8828125,
+    "memory_current_mb_sample": 7.5625,
+    "memory_peak_delta_mb": 2.375,
+    "zone_counts": {
+      "zone-01": 1465,
+      "zone-05": 1481
+    },
+    "requests_total_metric_delta": 3000.0,
+    "requests_by_zone_metric_delta": {
+      "zone-05": 1500.0,
+      "zone-01": 1500.0
+    },
+    "cross_region_reroutes": 0,
+    "east_to_west_reroutes": 0,
+    "west_to_east_reroutes": 0,
+    "expected_cross_hits": 0,
+    "expected_cross_eligible_requests": 1500
+  }
+]

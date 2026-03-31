@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use Rilot in research, please cite it using the metadata below."
+title: "Rilot: Carbon Cursor Edge Routing"
+type: software
+authors:
+    given-names: "Maninderpreet Singh"
+    email: "maninderpreetchanna@gmail.com"
+abstract: "Carbon Cursor edge routing proxy with multi-objective policies, Wasm extensibility, and carbon-aware observability."
+version: "0.5.0"
+license: "MIT"
+repository-code: "https://github.com/SudoDevStudio/rilot"
+url: "https://github.com/SudoDevStudio/rilot"
+keywords:
+  - "carbon-aware routing"
+  - "edge proxy"
+  - "green software"
+  - "multi-objective optimization"
+  - "wasm"

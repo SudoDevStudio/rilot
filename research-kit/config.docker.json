@@ -34,7 +34,7 @@
       "rewrite": "none",
       "rule": {
         "path": "/",
-        "type": "contain"
+        "type": "prefix"
       },
       "zones": [
         {

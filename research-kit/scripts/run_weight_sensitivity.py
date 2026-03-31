@@ -97,7 +97,7 @@ def main():
             for proxy in cfg.get("proxies", []):
                 policy = proxy.get("policy", {})
                 policy["carbon_cursor_enabled"] = True
-                policy["priority_mode"] = "balanced"
+                policy["priority_mode"] = "custom"
                 policy["weights"] = weights
                 policy["plugin_enabled"] = False
                 proxy["policy"] = policy

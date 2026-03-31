@@ -17,12 +17,15 @@ ROOT = Path(__file__).resolve().parents[2]
 KIT_DIR = ROOT / "research-kit"
 CONFIG_FILE_NAME = os.environ.get("CONFIG_FILE_NAME", "config.live.json")
 CONFIG_PATH = KIT_DIR / CONFIG_FILE_NAME
-RESULTS_DIR_NAME = os.environ.get("RESULTS_DIR_NAME", "result_live")
+RESULTS_DIR_NAME = os.environ.get("RESULTS_DIR_NAME", "get_result")
 RESULTS_BASE = KIT_DIR / RESULTS_DIR_NAME
 CLEAN_RESULTS_BASE = os.environ.get("CLEAN_RESULTS_BASE", "1") not in ("0", "false", "False")
 ROUTE = os.environ.get("ROUTE", "/")
 ROUTE_METRIC_FILTER = os.environ.get("ROUTE_METRIC_FILTER", "/")
-REQUESTS_PER_REGION = int(os.environ.get("REQUESTS_PER_REGION", "150"))
+TOTAL_REQUESTS = int(os.environ.get("TOTAL_REQUESTS", "50000"))
+REQUESTS_PER_REGION = int(
+    os.environ.get("REQUESTS_PER_REGION", str(max(1, TOTAL_REQUESTS // 2)))
+)
 RILOT_HOST_PORT = os.environ.get("RILOT_HOST_PORT", "18080")
 RILOT_URL = os.environ.get("RILOT_URL", f"http://127.0.0.1:{RILOT_HOST_PORT}")
 USER_REGION_INPUT_MODE = os.environ.get("USER_REGION_INPUT_MODE", "header-synthetic")
@@ -49,6 +52,43 @@ BACKEND_SERVICES = [
     if s.strip()
 ]
 
+
+def env_optional_float(name: str) -> Optional[float]:
+    raw = os.environ.get(name)
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except Exception:
+        return None
+
+
+BALANCED_MAX_ADDED_LATENCY_MS = env_optional_float("BALANCED_MAX_ADDED_LATENCY_MS")
+BALANCED_CROSS_REGION_RTT_PENALTY_MS = env_optional_float("BALANCED_CROSS_REGION_RTT_PENALTY_MS")
+BALANCED_W_CARBON = env_optional_float("BALANCED_W_CARBON")
+BALANCED_W_LATENCY = env_optional_float("BALANCED_W_LATENCY")
+BALANCED_W_ERRORS = env_optional_float("BALANCED_W_ERRORS")
+BALANCED_W_COST = env_optional_float("BALANCED_W_COST")
+
+BALANCED_CONSTRAINTS_OVERRIDE = {}
+if BALANCED_MAX_ADDED_LATENCY_MS is not None:
+    BALANCED_CONSTRAINTS_OVERRIDE["max_added_latency_ms"] = BALANCED_MAX_ADDED_LATENCY_MS
+if BALANCED_CROSS_REGION_RTT_PENALTY_MS is not None:
+    BALANCED_CONSTRAINTS_OVERRIDE["cross_region_rtt_penalty_ms"] = BALANCED_CROSS_REGION_RTT_PENALTY_MS
+
+BALANCED_WEIGHTS_OVERRIDE = {}
+if BALANCED_W_CARBON is not None:
+    BALANCED_WEIGHTS_OVERRIDE["w_carbon"] = BALANCED_W_CARBON
+if BALANCED_W_LATENCY is not None:
+    BALANCED_WEIGHTS_OVERRIDE["w_latency"] = BALANCED_W_LATENCY
+if BALANCED_W_ERRORS is not None:
+    BALANCED_WEIGHTS_OVERRIDE["w_errors"] = BALANCED_W_ERRORS
+if BALANCED_W_COST is not None:
+    BALANCED_WEIGHTS_OVERRIDE["w_cost"] = BALANCED_W_COST
+
 BASE_MODES = [
     (
         "carbon_first",
@@ -68,7 +108,23 @@ BASE_MODES = [
             },
         },
     ),
-    ("balanced", {"enabled": True, "priority_mode": "balanced"}),
+    (
+        "balanced",
+        {
+            "enabled": True,
+            "priority_mode": "balanced",
+            **(
+                {"constraints_override": BALANCED_CONSTRAINTS_OVERRIDE}
+                if BALANCED_CONSTRAINTS_OVERRIDE
+                else {}
+            ),
+            **(
+                {"weights_override": BALANCED_WEIGHTS_OVERRIDE}
+                if BALANCED_WEIGHTS_OVERRIDE
+                else {}
+            ),
+        },
+    ),
     (
         "latency_first",
         {
@@ -405,11 +461,11 @@ def local_vs_selected_relation(request_region: str, selected_zone: str) -> str:
     return "cross-region"
 
 
-def load_fixture_expectation(fixture_path: Path):
+def load_json_source_expectation(source_path: Path):
     try:
-        if not fixture_path.exists():
+        if not source_path.exists():
             return None
-        data = json.loads(fixture_path.read_text(encoding="utf-8"))
+        data = json.loads(source_path.read_text(encoding="utf-8"))
     except Exception:
         return None
     zones = data.get("zones", {})
@@ -433,6 +489,85 @@ def load_fixture_expectation(fixture_path: Path):
     }
 
 
+def load_csv_source_expectation(cfg: dict, zone_region_map: dict, source_path: Path):
+    try:
+        if not source_path.exists():
+            return None
+        with source_path.open("r", encoding="utf-8", newline="") as handle:
+            rows = list(csv.DictReader(handle))
+    except Exception:
+        return None
+
+    source_values = {}
+    for row in rows:
+        zone = str(row.get("zone", "")).strip()
+        if not zone:
+            continue
+        try:
+            source_values[zone] = float(row.get("carbonIntensity", ""))
+        except Exception:
+            continue
+
+    if not source_values:
+        return None
+
+    zone_map = cfg.get("carbon", {}).get("electricitymap_zone_map", {})
+    region_best = {}
+    for zone_name, region in zone_region_map.items():
+        if region not in ("us-east", "us-west"):
+            continue
+        mapped_zone = zone_map.get(zone_name, zone_name)
+        intensity = source_values.get(mapped_zone)
+        if intensity is None:
+            continue
+        current_best = region_best.get(region)
+        if current_best is None or intensity < current_best:
+            region_best[region] = intensity
+
+    east = region_best.get("us-east")
+    west = region_best.get("us-west")
+    if east is None or west is None:
+        return None
+    if east < west:
+        return {
+            "greener_region": "us-east",
+            "expected_cross_direction": "us-west->us-east",
+            "source_kind": "csv",
+        }
+    if west < east:
+        return {
+            "greener_region": "us-west",
+            "expected_cross_direction": "us-east->us-west",
+            "source_kind": "csv",
+        }
+    return {
+        "greener_region": "tie",
+        "expected_cross_direction": "none",
+        "source_kind": "csv",
+    }
+
+
+def load_carbon_source_expectation(cfg: dict, zone_region_map: dict):
+    source_csv_raw = os.environ.get("CARBON_API_SOURCE_CSV", "").strip()
+    if source_csv_raw:
+        source_candidate = Path(source_csv_raw)
+        source_path = source_candidate if source_candidate.is_absolute() else (KIT_DIR / source_candidate)
+        expectation = load_csv_source_expectation(cfg, zone_region_map, source_path)
+        if expectation:
+            return expectation
+
+    if ELECTRICITYMAP_FIXTURE_OVERRIDE:
+        source_candidate = Path(ELECTRICITYMAP_FIXTURE_OVERRIDE)
+        source_path = source_candidate if source_candidate.is_absolute() else (KIT_DIR / source_candidate)
+    else:
+        source_path = KIT_DIR / "carbon-traces" / "electricitymap-latest-sample.json"
+
+    expectation = load_json_source_expectation(source_path)
+    if expectation:
+        expectation["source_kind"] = "json"
+    return expectation
+
+
 def dict_delta(after: dict, before: dict) -> dict:
     out = {}
     keys = set(after.keys()) | set(before.keys())
@@ -443,7 +578,7 @@ def dict_delta(after: dict, before: dict) -> dict:
     return out
 
 
-def build_modes(fixture_expectation=None):
+def build_modes():
     explicit_cross_region_mode = (
         "explicit_cross_region_to_green",
         {
@@ -471,6 +606,17 @@ def build_modes(fixture_expectation=None):
             "provider": "slow-mock",
             "provider_timeout_ms": 5,
             "route_class": "flexible",
+            "constraints_override": {
+                "max_added_latency_ms": 300,
+                "max_request_share_percent": 100,
+                "max_error_rate": 1.0,
+            },
+            "weights_override": {
+                "w_carbon": 1.0,
+                "w_latency": 0.0,
+                "w_errors": 0.0,
+                "w_cost": 0.0,
+            },
         },
     )
     mode_map = {name: cfg for (name, cfg) in BASE_MODES}
@@ -708,6 +854,12 @@ def apply_mode(cfg: dict, mode_name: str, mode_cfg: dict) -> dict:
             weights = policy.get("weights", {})
             weights.update(mode_cfg["weights_override"])
             policy["weights"] = weights
+        # Ensure each mode considers all configured zones.
+        zones = proxy.get("zones", [])
+        constraints = policy.get("constraints", {})
+        if zones:
+            constraints["max_candidates"] = max(len(zones), 1)
+        policy["constraints"] = constraints
         proxy["policy"] = policy
     return out
 
@@ -757,21 +909,13 @@ def main():
         apply_carbon_variance_profile(json.loads(original_config))
     )
     zone_region_map = build_zone_region_map(base_cfg)
-    if ELECTRICITYMAP_FIXTURE_OVERRIDE:
-        fixture_candidate = Path(ELECTRICITYMAP_FIXTURE_OVERRIDE)
-        fixture_path = fixture_candidate if fixture_candidate.is_absolute() else (KIT_DIR / fixture_candidate)
-    else:
-        fixture_path = KIT_DIR / "carbon-traces" / "electricitymap-latest-sample.json"
-    fixture_expectation = load_fixture_expectation(fixture_path)
-    unique_regions = {r for r in zone_region_map.values() if r}
-    if not (len(zone_region_map) == 2 and unique_regions == {"us-east", "us-west"}):
-        fixture_expectation = None
+    source_expectation = load_carbon_source_expectation(base_cfg, zone_region_map)
     expected_cross_direction = (
-        fixture_expectation.get("expected_cross_direction")
-        if fixture_expectation
+        source_expectation.get("expected_cross_direction")
+        if source_expectation
         else None
     )
-    modes = build_modes(fixture_expectation)
+    modes = build_modes()
     summaries = []
     try:
         run(
@@ -968,6 +1112,7 @@ def main():
         f"- Config file: `{CONFIG_FILE_NAME}`",
         f"- Compose file: `{COMPOSE_FILE_NAME}`",
         f"- Results dir: `{RESULTS_DIR_NAME}`",
+        f"- Total requests target (all regions): `{REQUESTS_PER_REGION * 2}`",
         f"- Requests per region: `{REQUESTS_PER_REGION}`",
         f"- Backend services: `{','.join(BACKEND_SERVICES)}`",
         f"- User region input mode: `{USER_REGION_INPUT_MODE}`",
@@ -976,9 +1121,18 @@ def main():
         f"- Failure scenario enabled: `{ENABLE_FAILURE_SCENARIO}`",
         f"- Baseline for savings: `baseline_no_carbon_balanced`",
         "",
+    ]
+    sample_requests_per_scenario = REQUESTS_PER_REGION * 2
+    if sample_requests_per_scenario <= 20:
+        lines.extend([
+            "> Note: this is a small-sample run.",
+            f"> With `{sample_requests_per_scenario}` requests per scenario, nearest-rank `p95` behaves like a near-maximum latency value.",
+            "",
+        ])
+    lines.extend([
         "| scenario | err % | avg latency ms | p95 latency ms | p95 delta ms | reroutes (cross-region) | east->west | west->east | expected cross->green % | cpu % sample | cpu delta % | mem MB sample | mem delta MB | mean exposure g/kWh | exposure saved % | co2e saved % |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
-    ]
+    ])
     for row in summaries:
         cpu = "" if row.get("cpu_percent_sample") is None else f"{row['cpu_percent_sample']:.2f}"
         cpu_delta = "" if row.get("cpu_delta_percent_vs_baseline") is None else f"{row['cpu_delta_percent_vs_baseline']:+.2f}"
@@ -998,12 +1152,13 @@ def main():
         if top_zone:
             lines.append(f"  - dominant zone: `{top_zone}`; zone split: `{row['zone_counts']}`")
 
-    if fixture_expectation:
+    if source_expectation:
         lines.extend([
             "",
             "## Cross-Region Expectation Check",
-            f"- Fixture greener region: `{fixture_expectation['greener_region']}`",
-            f"- Expected cross-region direction (carbon-aware modes): `{fixture_expectation['expected_cross_direction']}`",
+            f"- Source greener region: `{source_expectation['greener_region']}`",
+            f"- Source type: `{source_expectation.get('source_kind', 'unknown')}`",
+            f"- Expected cross-region direction (carbon-aware modes): `{source_expectation['expected_cross_direction']}`",
         ])
         for row in summaries:
             if row["scenario"] in ("carbon_first", "balanced", "latency_first", "explicit_cross_region_to_green"):

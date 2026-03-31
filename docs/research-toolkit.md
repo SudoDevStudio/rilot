@@ -17,10 +17,11 @@ Run the experiment runner:
 
 ```bash
 cd research-kit
-./scripts/run_live_experiment.sh
+./scripts/run_comparative_experiment.sh
 ```
 
 Region context for experiments is provided via `x-user-region` request header.
+By default, the runner uses a local ElectricityMap-compatible API backed by the fixed CSV snapshot `research-kit/carbon-traces/electricitymap-sandbox-20260328T2000Z.csv`, so no live external carbon API calls are required.
 `run_comparative_evaluation.py` defaults to synthetic header assignment (`us-east`/`us-west`) and supports:
 
 - `USER_REGION_INPUT_MODE=header-synthetic` (default)
@@ -34,10 +35,15 @@ The workflow executes in this order:
 2. `balanced`
 3. `latency_first`
 4. `carbon_first_provider_timeout` (enabled when `ENABLE_FAILURE_SCENARIO=1`)
-5. `explicit_cross_region_to_green` (enabled when fixture indicates a clear greener region)
+5. `explicit_cross_region_to_green` (always included; most informative when the configured carbon source indicates a clear greener east/west direction)
 6. `baseline_no_carbon_strict_local`
 7. `baseline_no_carbon_latency_first`
 8. `baseline_no_carbon_balanced`
+
+Notes for interpreting those baselines:
+
+- The comparative runner forces `hysteresis_delta=0.0` and `min_switch_interval_secs=0` for reproducibility, so the research pipeline intentionally does not measure stickiness/flap prevention. Hysteresis behavior is covered by unit tests instead.
+- On flexible routes with `carbon_cursor_enabled=false`, selection falls back to lowest-latency routing. As a result, `baseline_no_carbon_latency_first` and `baseline_no_carbon_balanced` are expected to converge unless future runtime behavior changes.
 
 Measure:
 
@@ -48,14 +54,15 @@ Measure:
 
 Outputs:
 
-- `research-kit/result_live/comparative-live/summary.csv`
-- `research-kit/result_live/comparative-live/summary.json`
-- `research-kit/result_live/comparative-live/summary.md`
+- `research-kit/get_result/comparative-results/summary.csv`
+- `research-kit/get_result/comparative-results/summary.json`
+- `research-kit/get_result/comparative-results/summary.md`
 - Per-scenario Prometheus dumps and request-level CSV.
 - CSV/Markdown trade-off deltas vs baseline (exposure saved, CO2e saved, latency delta, CPU delta).
 - Cross-region reroute observability (`east->west`, `west->east`) in both `requests.csv` and summary outputs.
 - The latest run is written to a stable path:
-  - `research-kit/result_live/comparative-live/`
+  - `research-kit/get_result/comparative-results/`
+- The runner refreshes `research-kit/get_result/` at the start of each run.
 
 ## Reading the comparative outputs
 
@@ -89,19 +96,25 @@ Outputs:
 ## Optional experiment variants
 
 - Real-data provider override:
-  - `CARBON_PROVIDER_OVERRIDE=electricitymap ELECTRICITYMAP_API_KEY_OVERRIDE=<key> ./scripts/run_live_experiment.sh`
+  - `CARBON_PROVIDER_OVERRIDE=electricitymap ELECTRICITYMAP_API_KEY_OVERRIDE=<key> ./scripts/run_comparative_experiment.sh`
 - Robustness scenario toggle:
-  - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_live_experiment.sh` (default)
+  - `ENABLE_FAILURE_SCENARIO=1 ./scripts/run_comparative_experiment.sh` (default)
   - Adds `slow-mock` + short provider timeout scenario.
-- Long-duration study:
-  - `REQUESTS_PER_REGION=1000 ./scripts/run_live_experiment.sh`
-- 10-zone live-style study with high-consuming requests:
-  - `./scripts/run_live_experiment.sh`
-  - uses local dynamic ElectricityMap-compatible API (`scripts/carbon-signal-api.js`)
-  - defaults to `carbon.cache_ttl_seconds=0`
-  - defaults to random dynamic intensities in `[100, 700]`
+- Request volume control:
+  - `TOTAL_REQUESTS=50000 ./scripts/run_comparative_experiment.sh`
+  - `REQUESTS_PER_REGION=1000 ./scripts/run_comparative_experiment.sh`
+  - If both are set, `REQUESTS_PER_REGION` wins.
+- 10-zone comparative study with high-consuming requests:
+  - `./scripts/run_comparative_experiment.sh`
+  - defaults to total request target `50000` (`25000` per region)
+  - uses local CSV-backed ElectricityMap-compatible API (`scripts/carbon-signal-api.js`)
+  - defaults to `carbon.cache_ttl_seconds>=5`
+  - uses `research-kit/2026-03-29-electricity-maps-coverage-data.csv` to derive Electricity Maps zone aliases when available
+  - uses CSV-only local ElectricityMap-compatible provider signals (no dynamic jitter path)
+  - serves API responses in-memory by default (optional snapshot write via `CARBON_API_OUT_FILE`)
+  - defaults to fixed carbon values from `research-kit/carbon-traces/electricitymap-sandbox-20260328T2000Z.csv`
   - defaults to cross-region RTT latency emulation (`RILOT_EMULATE_CROSS_REGION_RTT=true`)
-  - writes outputs under `research-kit/result_live/comparative-live/`
+  - writes outputs under `research-kit/get_result/comparative-results/`
 
 ## Ethical and practical implications
 

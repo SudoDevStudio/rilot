@@ -1,0 +1,39 @@
+# TYPE requests_total counter
+# TYPE carbon_safe_calls_total counter
+# TYPE carbon_safe_call_ratio gauge
+# TYPE errors_total counter
+# TYPE latency_ms_bucket counter
+# TYPE carbon_intensity_g_per_kwh gauge
+# TYPE carbon_intensity_exposure_total counter
+# TYPE co2e_estimated_total counter
+# TYPE energy_joules_estimated_total counter
+requests_total{route="/",zone="zone-10"} 1
+carbon_safe_calls_total{route="/",zone="zone-10"} 0
+carbon_safe_call_ratio{route="/",zone="zone-10"} 0.00000000
+errors_total{route="/",zone="zone-10"} 0
+carbon_intensity_exposure_total{route="/",zone="zone-10"} 280.00000000
+co2e_estimated_total{route="/",zone="zone-10"} 0.00001576
+energy_joules_estimated_total{route="/",zone="zone-10"} 0.20266300
+latency_ms_bucket{route="/",zone="zone-10",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-10",le="100"} 1
+latency_ms_bucket{route="/",zone="zone-10",le="250"} 1
+latency_ms_bucket{route="/",zone="zone-10",le="500"} 1
+latency_ms_bucket{route="/",zone="zone-10",le="1000"} 1
+latency_ms_bucket{route="/",zone="zone-10",le="2000"} 1
+requests_total{route="/",zone="zone-06"} 2999
+carbon_safe_calls_total{route="/",zone="zone-06"} 0
+carbon_safe_call_ratio{route="/",zone="zone-06"} 0.00000000
+errors_total{route="/",zone="zone-06"} 26
+carbon_intensity_exposure_total{route="/",zone="zone-06"} 674775.00000000
+co2e_estimated_total{route="/",zone="zone-06"} 0.04722614
+energy_joules_estimated_total{route="/",zone="zone-06"} 755.61827322
+latency_ms_bucket{route="/",zone="zone-06",le="25"} 0
+latency_ms_bucket{route="/",zone="zone-06",le="50"} 0
+latency_ms_bucket{route="/",zone="zone-06",le="100"} 2999
+latency_ms_bucket{route="/",zone="zone-06",le="250"} 2999
+latency_ms_bucket{route="/",zone="zone-06",le="500"} 2999
+latency_ms_bucket{route="/",zone="zone-06",le="1000"} 2999
+latency_ms_bucket{route="/",zone="zone-06",le="2000"} 2999
+carbon_intensity_g_per_kwh{zone="zone-10"} 280.000000
+carbon_intensity_g_per_kwh{zone="zone-06"} 225.000000

@@ -2,6 +2,8 @@
 
 This documentation set covers architecture, configuration, runtime behavior, plugin integration, and reproducible experiments.
 
+Primary experiment entrypoint: `research-kit/scripts/run_comparative_experiment.sh`.
+
 ## Start here
 
 1. `README.md` (project overview + quickstart)
