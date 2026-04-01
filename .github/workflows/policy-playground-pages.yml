@@ -1,0 +1,64 @@
+name: Policy Playground Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'examples/policy-playground/**'
+      - '.github/workflows/policy-playground-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: policy-playground-pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: examples/policy-playground/package-lock.json
+
+      - name: Install dependencies
+        working-directory: examples/policy-playground
+        run: npm ci
+
+      - name: Run playground tests
+        working-directory: examples/policy-playground
+        run: npm test
+
+      - name: Build playground
+        working-directory: examples/policy-playground
+        env:
+          VITE_BASE_PATH: ${{ format('/{0}/', github.event.repository.name) }}
+        run: npm run build
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: examples/policy-playground/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
