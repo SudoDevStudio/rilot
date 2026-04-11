@@ -70,7 +70,7 @@ Outputs:
 - `latency_first` is a useful control: it prioritizes responsiveness and often increases carbon exposure relative to `balanced`/`carbon_first`.
 - CPU overhead uses cgroup window deltas when available (`cpu_sample_method=cgroup_delta`), with `docker_stats` as fallback.
 - Treat empty memory samples as "not captured", not "zero memory overhead".
-- For stronger effect sizes in papers, use longer runs and carbon traces with larger regional variance.
+- For clearer signal separation, use longer runs and carbon traces with larger regional variance.
 
 ## Fairness and user impact
 
@@ -84,8 +84,8 @@ Outputs:
 
 ## Model calibration status
 
-- CO2e values are model-based and intended for comparative policy studies, not absolute billing-grade emissions accounting.
-- Strengthen claims by calibrating against measured energy traces (RAPL/PDU/cloud telemetry) and reporting model error.
+- CO2e values are model-based and intended primarily for comparative policy studies rather than direct metering.
+- For stronger absolute claims, calibrate against measured energy traces (RAPL, PDU, or cloud telemetry) and report model error.
 
 ## Real-world case study path
 
@@ -127,10 +127,10 @@ Outputs:
 ## Known limitations
 
 - Provider is mock-first; external APIs can be added behind the same cached signal interface.
-- Energy/CO2e are model-based estimates and should be calibrated for publication claims.
+- Energy and CO2e outputs are model-based estimates and should be calibrated against measured energy data before being used as absolute production figures.
 
-## Data availability template
+## Example data availability statement
 
-Use a statement such as:
+You can adapt the following statement when describing reproducibility materials:
 
 "All scripts, configs, and traces required to reproduce the reported experiments are available in `research-kit/` in this repository. Generated result artifacts include summary CSV/JSON/Markdown outputs, per-request CSV, and per-scenario Prometheus metrics dumps."

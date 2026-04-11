@@ -2,7 +2,7 @@
 
 This folder captures the planned WebAssembly edge deployment target.
 
-Positioning for the paper:
+Current scope:
 
 - This is a future-work track for provider-native edge execution.
 - It is intended to host a platform-specific adapter (Cloudflare/Fastly/etc).

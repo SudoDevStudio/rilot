@@ -1,51 +1,38 @@
-# Model Calibration and CO2e Caveats
+# Energy Model and CO2e Estimates
 
-## Purpose
-
-Rilot reports estimated energy and carbon metrics to support relative policy comparison experiments.
-These values should be interpreted as model outputs, not direct power meter readings.
+Rilot reports estimated energy and CO2e metrics to support comparative evaluation of routing policies.
+These values are model outputs rather than direct power-meter measurements, so they are best interpreted as relative indicators unless calibrated against measured service energy.
 
 ## Current estimation model
 
-Per request, Rilot computes:
+Rilot emits two request-aggregated metrics:
 
 1. `energy_joules_estimated`
 2. `co2e_estimated_total`
 
-Default energy estimate in `src/proxy.rs`:
+By default, the proxy estimates per-request energy in `src/proxy.rs` as:
 
 - `energy_joules = 0.003 * latency_ms + 0.00001 * bytes`
 
-Carbon conversion:
+It then converts estimated energy to grams of CO2e using:
 
 - `co2e_g = (energy_joules / 3_600_000) * carbon_intensity_g_per_kwh`
 
-Carbon intensity source:
+The carbon-intensity term comes from the configured provider signal (`electricitymap`, `electricitymap-local`, or mock inputs), unless a Wasm plugin supplies `carbon_intensity_g_per_kwh_override`.
+Likewise, a plugin can replace the default energy estimate through `energy_joules_override`.
 
-- Provider signal (`electricitymap`, `electricitymap-local`, or mock values)
-- Optional plugin override (`carbon_intensity_g_per_kwh_override`)
+## Calibration workflow
 
-Energy override source:
+To improve absolute accuracy for a specific service or deployment:
 
-- Optional plugin override (`energy_joules_override`)
+1. Collect measured service energy under representative load (for example via RAPL, smart PDU, cloud telemetry, or host power instrumentation).
+2. Fit coefficients against measured joules per request for the service classes you care about.
+3. Apply the calibrated model either by adjusting core estimation parameters or by using plugin overrides.
+4. Evaluate both absolute error against measured data and relative ranking stability across policy modes.
 
-## Calibration recommendations
+## Interpretation notes
 
-1. Collect measured service energy (RAPL, smart PDU, cloud telemetry, or host meter) under representative load.
-2. Fit coefficients against measured joules/request for each service class.
-3. Update plugin overrides or core estimation parameters accordingly.
-4. Report both:
-   - absolute error against measured data
-   - relative ranking stability across policies
-
-## Reporting caveats (for papers)
-
-- Results are sensitive to proxy model coefficients.
+- Results are sensitive to the chosen proxy energy model coefficients.
 - Different services may require different per-request energy models.
-- Carbon-intensity APIs can include estimation uncertainty and refresh lag.
-
-## Recommended language
-
-Use wording such as:
-
-"Rilot's CO2e metrics are model-based estimates used for controlled comparative evaluation of routing policies. Absolute values should be calibrated against measured power data for production claims."
+- Carbon-intensity APIs can introduce uncertainty through estimation error, regional coverage differences, and refresh lag.
+- For controlled experiments, Rilot's CO2e metrics are most useful for comparing policy behavior under a fixed model and signal source.
