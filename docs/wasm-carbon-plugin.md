@@ -42,4 +42,12 @@ When present, Rilot uses this value for per-request CO2e accounting instead of h
 3. Compute route score (carbon, latency, errors, cost) for candidate backends.
 4. Return selected backend in `app_url`.
 
-Use `examples/` as the starting template for building a custom component.
+Use `examples/wasm-plugin/` as the starting template for building a custom component:
+
+```bash
+cd examples/wasm-plugin
+cargo build --release --target wasm32-wasip1
+# → target/wasm32-wasip1/release/rilot_plugin_example.wasm
+```
+
+Point a route's `override_file` at that file (see `examples/config/legacy-proxies.json`).

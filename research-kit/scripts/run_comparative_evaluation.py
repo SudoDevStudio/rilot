@@ -414,6 +414,28 @@ def parse_zone_filter_reasons(raw: str) -> dict:
     return out
 
 
+# Decision reason codes emitted by rilot-core; see docs/runtime-behavior.md.
+# Only these two mean "carbon actually drove this choice".
+CARBON_DRIVEN_REASONS = {"score-win", "deferred-for-greener-window"}
+FALLBACK_REASONS = {"fallback-nearest", "fallback-lowest-latency"}
+NO_SELECTION_REASONS = {"no-eligible-backend", "no-backends"}
+
+
+def reason_kind(decision_reason: str) -> str:
+    """Groups a reason code into green / latency / sticky / fallback / none."""
+    if decision_reason in CARBON_DRIVEN_REASONS:
+        return "green"
+    if decision_reason in FALLBACK_REASONS:
+        return "fallback"
+    if decision_reason in NO_SELECTION_REASONS:
+        return "none"
+    if decision_reason == "hysteresis-sticky-zone":
+        return "sticky"
+    if decision_reason == "lowest-latency":
+        return "latency"
+    return "unknown"
+
+
 def build_decision_reason_brief(
     decision_reason: str,
     request_region: str,
@@ -432,11 +454,13 @@ def build_decision_reason_brief(
         uniq = ",".join(sorted(set(local_filtered)))
         return f"reroute-fallback: local filtered({uniq})"
 
+    kind = reason_kind(decision_reason)
+
     if is_cross_region:
-        return "reroute-green" if decision_reason == "score-win" else "reroute"
+        return f"reroute-{kind}"
 
     if request_region and selected_region and request_region == selected_region:
-        return "local-green" if decision_reason == "score-win" else "local"
+        return f"local-{kind}"
 
     return decision_reason or "unknown"
 

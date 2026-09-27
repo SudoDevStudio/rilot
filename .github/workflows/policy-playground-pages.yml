@@ -1,4 +1,4 @@
-name: Policy Playground Pages
+name: GitHub Pages (playground + GreenCart demo)
 
 on:
   push:
@@ -7,6 +7,13 @@ on:
       - master
     paths:
       - 'examples/policy-playground/**'
+      - 'examples/demo-shop/**'
+      - 'packages/**'
+      - 'crates/rilot-core/**'
+      - 'crates/rilot-wasm/**'
+      - 'fixtures/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/policy-playground-pages.yml'
   workflow_dispatch:
 
@@ -16,7 +23,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: policy-playground-pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
@@ -31,7 +38,18 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure Pages
+        id: pages
         uses: actions/configure-pages@v5
+
+      # The playground runs rilot-core compiled to WebAssembly; `npm test` and
+      # `npm run build` compile it via scripts/build-wasm.mjs.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -40,19 +58,40 @@ jobs:
           cache: npm
           cache-dependency-path: examples/policy-playground/package-lock.json
 
-      - name: Install dependencies
+      - name: Install playground dependencies
         working-directory: examples/policy-playground
         run: npm ci
-
-      - name: Run playground tests
-        working-directory: examples/policy-playground
-        run: npm test
 
       - name: Build playground
         working-directory: examples/policy-playground
         env:
           VITE_BASE_PATH: ${{ format('/{0}/', github.event.repository.name) }}
         run: npm run build
+
+      - name: Install demo-shop dependencies
+        working-directory: examples/demo-shop
+        run: npm ci
+
+      # configure-pages knows the real (lower-cased) Pages URL; a user or
+      # organisation site has no path segment, a project site has /<repo>.
+      - name: Work out where the demo will live
+        id: demo
+        run: |
+          base='${{ steps.pages.outputs.base_path }}'
+          [[ "$base" == "/" ]] && base=''
+          echo "base=${base%/}/demo/" >> "$GITHUB_OUTPUT"
+
+      # The demo is an Astro site; `site` + `base` also drive its canonical
+      # URLs, its sitemap and its robots.txt.
+      - name: Build demo-shop
+        working-directory: examples/demo-shop
+        env:
+          PUBLIC_SITE: ${{ steps.pages.outputs.origin }}
+          PUBLIC_BASE_PATH: ${{ steps.demo.outputs.base }}
+        run: npm run build
+
+      - name: Combine both apps into one site
+        run: cp -r examples/demo-shop/dist examples/policy-playground/dist/demo
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3

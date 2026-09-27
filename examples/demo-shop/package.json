@@ -1,0 +1,44 @@
+{
+  "name": "rilot-demo-shop",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "GreenCart: a small Astro storefront where every page you open is a request routed live by Rilot, the carbon-aware routing engine.",
+  "keywords": [
+    "rilot",
+    "carbon-aware",
+    "carbon-aware-routing",
+    "green-software",
+    "sustainable-web",
+    "grid-carbon-intensity",
+    "edge-routing",
+    "astro",
+    "webassembly",
+    "demo"
+  ],
+  "scripts": {
+    "wasm": "node scripts/build-wasm.mjs",
+    "predev": "npm run wasm",
+    "dev": "astro dev",
+    "prebuild": "npm run wasm",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "pretest": "npm run wasm",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@astrojs/react": "^4.4.0",
+    "@astrojs/sitemap": "^3.6.0",
+    "astro": "^5.15.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^20.19.43",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1"
+  }
+}

@@ -1,10 +1,14 @@
 [package]
 name = "rilot-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
-description = "Core policy engine for Rilot routing decisions"
+description = "Platform-independent routing decision engine shared by native Rilot, edge adapters, and the browser playground"
 repository = "https://github.com/SudoDevStudio/rilot"
 
+# rilot-core must stay pure: no async runtimes, HTTP clients, filesystem,
+# environment variables, clocks, or provider SDKs. It has to compile for
+# wasm32-unknown-unknown so the browser playground runs the same engine.
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["float_roundtrip"] }

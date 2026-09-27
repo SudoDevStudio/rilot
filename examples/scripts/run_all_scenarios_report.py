@@ -13,7 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RILOT_BIN = ROOT / "target" / "debug" / "rilot"
-CONFIG = ROOT / "examples" / "config" / "config.json"
+CONFIG = ROOT / "examples" / "config" / "legacy-proxies.json"
 RUN_ZONES = ROOT / "examples" / "node-apps" / "run-local-zones.sh"
 RILOT_PORT = int(os.environ.get("RILOT_SCENARIO_PORT", "18080"))
 SCENARIO_LIVE_RELOAD = os.environ.get("RILOT_SCENARIO_LIVE_RELOAD", "false").lower() in ("1", "true", "yes")

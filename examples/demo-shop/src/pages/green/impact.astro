@@ -1,0 +1,31 @@
+---
+import Shop from '../../layouts/Shop.astro';
+import GridNow from '../../components/islands/GridNow.tsx';
+import { PAGE_REQUESTS } from '../../shop/requests';
+---
+
+<Shop
+  title="Our impact"
+  description="Live grid carbon intensity for all three GreenCart regions, and how that decides where each page of the shop is served from."
+  keywords={[
+    'grid carbon intensity',
+    'routing policy per route',
+    'carbon first routing',
+    'electricity maps demo',
+    'carbon aware web pages'
+  ]}
+  path={PAGE_REQUESTS.impact.path}
+  requestLabel={PAGE_REQUESTS.impact.label}
+  kilobytes={PAGE_REQUESTS.impact.kilobytes}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Our impact', path: '/green/impact' }]}
+>
+  <section class="impact-hero">
+    <h1>Where your order is served from</h1>
+    <p>
+      Our three data centres sit on three different power grids, and those grids change hour by hour. When a request is
+      not urgent, we send it wherever the electricity is cleanest right now.
+    </p>
+  </section>
+
+  <GridNow client:only="react" />
+</Shop>

@@ -1,0 +1,87 @@
+---
+// Everything a crawler needs: a unique title and description per page, a
+// canonical URL, social cards, and JSON-LD describing what this site is.
+// The shop is fictional, so the structured data describes the demo itself
+// rather than claiming to sell anything.
+import { href } from '../lib/links';
+
+type Props = {
+  title: string;
+  description: string;
+  keywords: string[];
+  /** Page path without the base, e.g. `/products`. */
+  path: string;
+  /** Extra JSON-LD for this page, on top of the site-wide graph. */
+  jsonLd?: Record<string, unknown>[];
+  breadcrumbs?: { name: string; path: string }[];
+};
+
+const { title, description, keywords, path, jsonLd = [], breadcrumbs = [] } = Astro.props;
+
+const site = Astro.site ?? new URL('http://localhost:4321');
+const canonical = new URL(href(path), site).toString();
+const ogImage = new URL(href('/social-card.svg'), site).toString();
+const fullTitle = path === '/' ? title : `${title} · GreenCart`;
+
+const graph: Record<string, unknown>[] = [
+  {
+    '@type': 'WebSite',
+    '@id': `${new URL(href('/'), site).toString()}#website`,
+    url: new URL(href('/'), site).toString(),
+    name: 'GreenCart — a Rilot demo',
+    description:
+      'A demonstration storefront where every page request is routed live by Rilot, an open-source carbon-aware routing engine.',
+    inLanguage: 'en',
+    keywords: keywords.join(', ')
+  },
+  {
+    '@type': 'SoftwareApplication',
+    name: 'Rilot',
+    applicationCategory: 'DeveloperApplication',
+    operatingSystem: 'Linux, macOS, Windows, Cloudflare Workers',
+    description:
+      'Rilot is an open-source carbon-aware routing proxy and engine: it picks the backend region for each request from grid carbon intensity, latency and distance.',
+    url: 'https://github.com/SudoDevStudio/rilot',
+    license: 'https://opensource.org/licenses/MIT',
+    offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' }
+  },
+  ...jsonLd
+];
+
+if (breadcrumbs.length > 0) {
+  graph.push({
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbs.map((crumb, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: crumb.name,
+      item: new URL(href(crumb.path), site).toString()
+    }))
+  });
+}
+
+const structuredData = { '@context': 'https://schema.org', '@graph': graph };
+---
+
+<title>{fullTitle}</title>
+<meta name="description" content={description} />
+<meta name="keywords" content={keywords.join(', ')} />
+<link rel="canonical" href={canonical} />
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="author" content="SudoDevStudio" />
+<meta name="generator" content={Astro.generator} />
+
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="GreenCart — a Rilot demo" />
+<meta property="og:title" content={fullTitle} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={canonical} />
+<meta property="og:image" content={ogImage} />
+<meta property="og:locale" content="en" />
+
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={fullTitle} />
+<meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={ogImage} />
+
+<script type="application/ld+json" set:html={JSON.stringify(structuredData)} is:inline />

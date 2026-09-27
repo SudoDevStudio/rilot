@@ -1,0 +1,60 @@
+---
+import Shop from '../layouts/Shop.astro';
+import NewsletterForm from '../components/islands/NewsletterForm.tsx';
+import { href } from '../lib/links';
+import { PRODUCTS } from '../shop/catalog';
+import { PAGE_REQUESTS } from '../shop/requests';
+
+const featured = PRODUCTS.slice(0, 3);
+---
+
+<Shop
+  title="GreenCart — every page routed by grid carbon"
+  description="A demo storefront where opening any page is a live routing decision: Rilot picks the backend region from grid carbon intensity, latency and distance, and shows its reasoning next to the shop."
+  keywords={['carbon aware routing demo', 'green hosting demo', 'edge routing example', 'WebAssembly routing engine']}
+  path={PAGE_REQUESTS.home.path}
+  requestLabel={PAGE_REQUESTS.home.label}
+  kilobytes={PAGE_REQUESTS.home.kilobytes}
+>
+  <section class="hero-banner">
+    <h1>Everyday things, made to last.</h1>
+    <p>
+      Free shipping over $40 — and carbon-aware delivery of this very page. Whatever you click, the panel on the right
+      shows exactly why that request went where it did.
+    </p>
+    <a class="primary" href={href('/products')}>Shop all</a>
+  </section>
+
+  <h2 class="section-title">Popular right now</h2>
+  <div class="product-grid">
+    {
+      featured.map((product) => (
+        <a class="product-card" href={href(`/products/${product.id}`)}>
+          <span class="product-art" aria-hidden="true">{product.emoji}</span>
+          <strong>{product.name}</strong>
+          <span class="muted">{product.blurb}</span>
+          <span class="price">${product.price}</span>
+        </a>
+      ))
+    }
+  </div>
+
+  <section class="explainer">
+    <h2>What is actually happening</h2>
+    <ol>
+      <li>
+        Each page here is a real URL, and that URL is the path Rilot routes — <code>/products</code>, <code
+          >/checkout/pay</code
+        >, <code>/reports/monthly</code>.
+      </li>
+      <li>Rilot matches a routing rule, works out which regions it needs carbon data for, and asks only for those.</li>
+      <li>It scores every backend on latency, distance and grid intensity, then picks one — or explains why it could not.</li>
+    </ol>
+    <p>
+      Open <a href={href('/green/impact')}>Our impact</a> to switch whole page groups to carbon-first and watch the choice
+      change.
+    </p>
+  </section>
+
+  <NewsletterForm client:visible />
+</Shop>

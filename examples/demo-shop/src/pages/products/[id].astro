@@ -1,0 +1,47 @@
+---
+import Shop from '../../layouts/Shop.astro';
+import AddToCart from '../../components/islands/AddToCart.tsx';
+import { href } from '../../lib/links';
+import { PRODUCTS, productById } from '../../shop/catalog';
+import { productRequest } from '../../shop/requests';
+
+export function getStaticPaths() {
+  return PRODUCTS.map((product) => ({ params: { id: product.id } }));
+}
+
+const { id } = Astro.params;
+const product = productById(id!)!;
+const request = productRequest(product.id);
+---
+
+<Shop
+  title={product.name}
+  description={product.description}
+  keywords={[...product.keywords, product.category.toLowerCase()]}
+  path={request.path}
+  requestLabel={request.label}
+  kilobytes={request.kilobytes}
+  breadcrumbs={[
+    { name: 'Home', path: '/' },
+    { name: 'Products', path: '/products' },
+    { name: product.name, path: `/products/${product.id}` }
+  ]}
+>
+  <nav class="crumbs" aria-label="Breadcrumb">
+    <a href={href('/products')}>Products</a> <span aria-hidden="true">›</span> <span>{product.name}</span>
+  </nav>
+
+  <article class="product-detail">
+    <span class="product-art large" aria-hidden="true">{product.emoji}</span>
+    <div>
+      <p class="eyebrow dark">{product.category}</p>
+      <h1>{product.name}</h1>
+      <p class="muted">{product.description}</p>
+      <p class="price large">${product.price}</p>
+      <div class="row">
+        <AddToCart client:visible id={product.id} name={product.name} wide={false} />
+        <a class="ghost" href={href('/products')}>Back to all products</a>
+      </div>
+    </div>
+  </article>
+</Shop>

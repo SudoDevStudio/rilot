@@ -1,0 +1,39 @@
+{
+  "name": "provider-failure-serves-last-known-good",
+  "description": "When the provider fails, the stale stored value is still returned; the core decides it is too old to route on.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {
+    "kv": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 900,
+        "observed_at": "2026-09-20T11:45:00Z"
+      }
+    ]
+  },
+  "provider": {
+    "fail": true,
+    "signals": []
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 900,
+        "source": "last-known-good"
+      }
+    ],
+    "provider_called_with": [
+      "us-east-1"
+    ],
+    "refreshed": [],
+    "store_writes": {}
+  }
+}

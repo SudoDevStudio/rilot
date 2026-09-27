@@ -1,0 +1,78 @@
+{
+  "name": "routing-rule-inheritance",
+  "description": "The /checkout/* rule overrides policy and radius; fallback and backends are inherited.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        }
+      ],
+      "policy": "balanced",
+      "radius_km": 2000,
+      "fallback": "nearest",
+      "routing_rules": [
+        {
+          "path": "/checkout/*",
+          "policy": "latency",
+          "radius_km": 800
+        }
+      ]
+    },
+    "request": {
+      "path": "/checkout/pay",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 400,
+          "observed_at": "2026-09-18T20:01:00Z"
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 50,
+          "observed_at": "2026-09-18T20:01:00Z"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "selected_backend_id": "east",
+    "reason_code": "lowest-latency",
+    "fallback_used": false,
+    "effective": {
+      "matched_rule": {
+        "index": 0,
+        "path": "/checkout/*"
+      },
+      "policy": "latency",
+      "policy_source": "rule",
+      "radius_km": 800.0,
+      "radius_source": "rule",
+      "fallback": "nearest",
+      "fallback_source": "root",
+      "backends": [
+        "east",
+        "west"
+      ],
+      "backends_source": "root"
+    },
+    "rejections": {
+      "east": [],
+      "west": [
+        "outside-radius"
+      ]
+    }
+  }
+}

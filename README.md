@@ -16,8 +16,32 @@ Rilot is an open-source Rust proxy for per-request carbon-aware routing at the H
 - Wasm extensibility for custom routing and energy overrides.
 - Carbon provider modes: `mock`, `slow-mock`, `electricitymap`, and standalone fixture-backed `electricitymap-local`.
 - Prometheus metrics, decision logs, and periodic rollups.
-- Shared policy crate: `crates/rilot-core` for future adapter targets.
+- Single routing engine: `crates/rilot-core` (pure Rust, also compiled to Wasm) shared by native Rilot, edge adapters, and the browser playground.
+- Simple config: `backends`, `policy`, `radius_km`, `fallback`, `routing_rules` (the legacy `proxies` format is still accepted).
 - Reproducible comparative evaluation kit in `research-kit/`.
+
+## Cloudflare Worker
+
+`adapters/cloudflare` deploys Rilot to Cloudflare Workers, running the same `rilot-core` engine as WebAssembly. Cloudflare supplies the caller's location, Workers KV holds last-known-good carbon signals, and `/__rilot/decision` explains any routing decision without forwarding traffic. See [adapters/cloudflare/README.md](adapters/cloudflare/README.md).
+
+## Demo shop
+
+`examples/demo-shop` is the fastest way to *see* what Rilot does: a small Astro storefront on the left, and on the right the decision Rilot made for that exact request — matched rule, carbon signals (or why they were skipped), every candidate with its verdict, and the backend that served it. Every shop page is a real URL, and that URL is the path Rilot routes. Move the shopper to another city, drag the grid clock, or set a routing policy per page in the panel's **Policy** tab (it travels as a cookie, so a real deployment honours it), and the routing changes in front of you. It deploys to GitHub Pages alongside the playground. See [examples/demo-shop/README.md](examples/demo-shop/README.md).
+
+## Policy Playground
+
+`examples/policy-playground` is an interactive browser-based visualization of the same Rilot decision engine used by the native runtime and edge adapters: `rilot-core` compiled to WebAssembly. It shows the matched routing rule, inherited configuration, radius eligibility, carbon signal status, and why each backend was selected or rejected. It is deployed as a static GitHub Pages site and needs no server or API keys.
+
+## Quickstart
+
+```bash
+./run-it/check.sh        # what is installed, and what each script needs
+./run-it/native.sh       # the proxy with local backends
+./run-it/demo-shop.sh    # the split-screen demo
+./run-it/test-all.sh     # every test suite
+```
+
+See [run-it/README.md](run-it/README.md) for all of them.
 
 ## Local quickstart (with simulators)
 
@@ -100,18 +124,55 @@ Optional stronger-evidence runs:
 - `docs/research-toolkit.md`
 - `docs/model-calibration.md`
 - `docs/edge-target.md`
+- `docs/carbon-layer.md`
+- `docs/playground-engine-comparison.md`
+- `docs/roadmap.md`
+- `docs/running.pa.md` (Punjabi guide, Roman script: how to run everything)
+- `docs/how-it-works.pa.md` (Punjabi guide, Roman script: Rilot kiven kamm karda hai)
 
-## Key files
+## Repository layout
 
-- Runtime: `src/proxy.rs`
-- Config schema: `src/config.rs`
-- Wasm runtime: `src/wasm_engine.rs`
-- Policy core: `crates/rilot-core/src/lib.rs`
-- Edge adapter roadmap (future work): `adapters/edge-wasm/`
-- Default config: `config.json`
-- Example config: `examples/config/config.json`
-- Local simulators: `examples/node-apps/`
-- Docker experiment config: `research-kit/config.live.json`
+```text
+src/                      native proxy (HTTP, metrics, plugin host)
+crates/
+  rilot-core/             THE routing engine: rules, radius, scoring, fallback (pure, no I/O)
+  rilot-carbon-policy/    carbon cache policy: serve / fetch / refresh (pure, no I/O)
+  rilot-carbon/           carbon providers + caches for native Rust
+  rilot-wasm/             C ABI so the two pure crates run in browsers and Workers
+packages/
+  rilot-js/               TypeScript binding for the Wasm engine
+  rilot-carbon/           carbon providers + caches for JavaScript hosts
+adapters/
+  cloudflare/             Cloudflare Worker (request metadata, Workers KV, forwarding)
+examples/
+  policy-playground/      browser visualization of the same engine
+  node-apps/              local backend simulators
+  config/                 example configs
+fixtures/
+  decisions/              routing cases checked in Rust, Wasm and the browser
+  carbon/                 carbon-layer cases checked in Rust and TypeScript
+research-kit/             comparative evaluation (Docker, Prometheus, scripts)
+run-it/                   one script per way of running Rilot
+docker/                   default config for the container image
+scripts/                  repository-level checks
+docs/                     documentation
+```
+
+Two rules explain the whole layout:
+
+1. **`crates/rilot-core` and `crates/rilot-carbon-policy` make every decision.** They are pure: no HTTP, no clock, no filesystem. They compile to WebAssembly, so native Rilot, the Cloudflare Worker and the browser all get identical answers.
+2. **Everything else is an adapter.** It supplies data (request metadata, carbon signals, runtime health) and acts on the result. The shared fixtures keep them honest.
+
+### Key files
+
+- Routing decisions: `crates/rilot-core/src/decision.rs`
+- Carbon freshness rules: `crates/rilot-carbon-policy/src/lib.rs`
+- Native request path: `src/proxy.rs`
+- Cloudflare Worker: `adapters/cloudflare/src/index.ts`
+- Demo shop: `examples/demo-shop/src/pages/` (one file per routed path)
+- Playground UI: `examples/policy-playground/src/App.tsx`
+- Config schema (native, both formats): `src/config.rs`
+- What is still open: `docs/roadmap.md`
 
 ## Broader Applicability
 
@@ -126,7 +187,7 @@ All code, configuration, and experiment scripts required to reproduce the report
 - Comparative evaluation scripts: `research-kit/scripts/run_comparative_experiment.sh`, `research-kit/scripts/run_comparative_evaluation.py`
 - Sensitivity analysis script: `research-kit/scripts/run_weight_sensitivity.py`
 - Experiment configuration and traces: `research-kit/config.live.json`, `research-kit/carbon-traces/`
-- Generated artifacts: `research-kit/get_result/comparative-results/` (summary tables, per-request CSV, Prometheus snapshots, charts)
+- Generated artifacts: `research-kit/get_result/comparative-results/` (summary tables, per-request CSV, Prometheus snapshots, charts) — produced by a run, not committed
 
 ## License
 

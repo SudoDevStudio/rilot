@@ -20,7 +20,7 @@ Minimal Node.js apps to simulate all major Rilot scenarios.
 Run Rilot with the scenario config (uses local ElectricityMap-style fixture):
 
 ```bash
-RUST_LOG=info ./target/release/rilot examples/config/config.json
+RUST_LOG=info ./target/release/rilot examples/config/legacy-proxies.json
 ```
 
 ## One-command scenario report for reviewers
@@ -64,7 +64,7 @@ If you also want the equivalent `curl` commands in the output:
 python3 examples/scripts/test_policy_modes.py --region us-east --show-curl
 ```
 
-## Scenario routes (with `examples/config/config.json`)
+## Scenario routes (with `examples/config/legacy-proxies.json`)
 
 - `/checkout/*` -> strict-local route class
 - `/search/*` -> flexible balanced routing
@@ -95,4 +95,4 @@ Each zone/background/checkout app supports:
 Plugin oracle supports:
 
 - `GET /health`
-- `GET /category/sample` (used by `examples/src/lib.rs` Wasm example)
+- `GET /category/sample` (used by the `examples/wasm-plugin/` Wasm example)

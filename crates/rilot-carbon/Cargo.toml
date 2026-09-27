@@ -1,0 +1,22 @@
+[package]
+name = "rilot-carbon"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Generic carbon signal acquisition for Rilot: pluggable providers and cache stores behind one freshness policy"
+repository = "https://github.com/SudoDevStudio/rilot"
+
+# This crate performs I/O, so it is an adapter-side dependency: rilot-core
+# never depends on it.
+[dependencies]
+rilot-core = { path = "../rilot-core" }
+rilot-carbon-policy = { path = "../rilot-carbon-policy" }
+anyhow = "1.0"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", features = ["time"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt", "time"] }

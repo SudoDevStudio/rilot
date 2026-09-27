@@ -1,0 +1,24 @@
+---
+import Shop from '../layouts/Shop.astro';
+import { href } from '../lib/links';
+import { PAGE_REQUESTS } from '../shop/requests';
+---
+
+<Shop
+  title="Page not found"
+  description="That page is not part of the GreenCart demo."
+  keywords={['404']}
+  path={PAGE_REQUESTS.notFound.path}
+  requestLabel={PAGE_REQUESTS.notFound.label}
+  kilobytes={PAGE_REQUESTS.notFound.kilobytes}
+>
+  <div class="empty">
+    <p class="product-art" aria-hidden="true">🧭</p>
+    <h1>Nothing here</h1>
+    <p class="muted">
+      That path is not part of the demo — but Rilot still routed the request for it, because routing happens before
+      anything knows whether the page exists.
+    </p>
+    <a class="primary" href={href('/')}>Back to the shop</a>
+  </div>
+</Shop>

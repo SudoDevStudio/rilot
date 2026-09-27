@@ -1,21 +1,33 @@
-# Edge-Wasm Target Plan
+# Edge Target
 
-Rilot currently runs as a native server host and executes Wasm plugins.
+Rilot runs at the edge through [`adapters/cloudflare`](../adapters/cloudflare): a Cloudflare Worker that executes `crates/rilot-core` compiled to WebAssembly, so edge routing decisions are identical to native ones.
 
-This project includes an edge adapter roadmap (`adapters/edge-wasm/`) as future work for provider-native deployment:
+```text
+request ─▶ plan() ─▶ carbon regions ─▶ CarbonService (memory → Workers KV → provider)
+                                                  │
+       fetch(backend) ◀── DecisionOutput ◀── decide()
+```
 
-- routing logic is shared through `crates/rilot-core`
-- platform adapter translates requests/responses
-- decision path remains cache-first and policy-driven
+## Division of responsibility
+
+| Layer | Owns |
+| --- | --- |
+| `crates/rilot-core` | routing rules, radius, constraints, scoring, fallback, hysteresis |
+| `packages/rilot-js` | the shared TypeScript binding for the Wasm module (also used by the playground) |
+| `adapters/cloudflare` | Worker runtime, request metadata, Workers KV cache, provider transport, forwarding |
+
+The core never performs I/O and never sees provider-specific zone ids.
 
 ## What exists today
 
-- `crates/rilot-core`: reusable policy primitives (`classify_route`, `effective_weights`)
-- `adapters/edge-wasm`: draft adapter layout and WIT contract
+- A deployable Worker (`npm run deploy`) with `/__rilot/health` and `/__rilot/decision` endpoints for testing a deployment without real backends.
+- Carbon acquisition with a per-isolate cache, Workers KV last-known-good storage, and Electricity Maps / JSON / static providers.
+- Tests that run in `workerd` (`npm test`), plus the shared decision fixtures that keep native, Wasm, and browser results identical.
 
-## Future work plan
+See the [adapter README](../adapters/cloudflare/README.md) for setup, deployment, and limitations (hysteresis is per isolate; there is no `/metrics` endpoint at the edge).
 
-1. Pick target edge provider/runtime.
-2. Implement adapter request normalization and backend forwarding.
-3. Integrate provider-specific observability hooks.
-4. Add runtime conformance tests.
+## Future work
+
+- Durable Object (or KV) backed hysteresis state so stickiness is global.
+- Analytics Engine export to match native Prometheus metrics.
+- Adapters for other edge runtimes, reusing `packages/rilot-js`.

@@ -1,0 +1,16 @@
+[package]
+name = "rilot-wasm"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "Browser/Wasm bindings for rilot-core (JSON in, JSON out)"
+repository = "https://github.com/SudoDevStudio/rilot"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rilot-core = { path = "../rilot-core" }
+rilot-carbon-policy = { path = "../rilot-carbon-policy" }
+

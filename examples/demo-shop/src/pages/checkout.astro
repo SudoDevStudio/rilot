@@ -1,0 +1,26 @@
+---
+import Shop from '../layouts/Shop.astro';
+import CheckoutForm from '../components/islands/CheckoutForm.tsx';
+import { PAGE_REQUESTS } from '../shop/requests';
+---
+
+<Shop
+  title="Checkout"
+  description="Checkout in the GreenCart demo: every field is validated by the browser through plain HTML attributes, and paying is routed by latency with the carbon step skipped entirely."
+  keywords={['html form validation', 'native form validation', 'latency routing policy', 'demo checkout']}
+  path={PAGE_REQUESTS.checkout.path}
+  requestLabel={PAGE_REQUESTS.checkout.label}
+  kilobytes={PAGE_REQUESTS.checkout.kilobytes}
+  breadcrumbs={[
+    { name: 'Home', path: '/' },
+    { name: 'Cart', path: '/cart' },
+    { name: 'Checkout', path: '/checkout' }
+  ]}
+>
+  <h1 class="section-title">Checkout</h1>
+  <p class="muted lede">
+    Nothing here is checked by JavaScript. Every rule is an HTML attribute — <code>required</code>, <code>type</code>,
+    <code>pattern</code>, <code>minlength</code> — so the browser refuses an invalid form itself. Try submitting it empty.
+  </p>
+  <CheckoutForm client:only="react" />
+</Shop>

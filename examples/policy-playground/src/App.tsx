@@ -1,249 +1,149 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
-import {
-  computeDecision,
-  type Candidate,
-  type DecisionCandidate,
-  type DecisionInput,
-  type GeoPolicy,
-  type RequestClass
-} from './model/decision';
-import { clonePresetState, presets } from './model/presets';
+import { useEffect, useMemo, useState } from 'react';
+import { ConfigEditor } from './components/ConfigEditor';
+import { DecisionPanel, REASON_LABELS } from './components/DecisionPanel';
+import { OptionalRange, RangeField, SelectField } from './components/fields';
+import { ResearchControls } from './components/ResearchControls';
+import { clonePresetState, presets, type PresetGroup } from './model/presets';
+import type { PlaygroundState, ViewMode } from './model/ui-types';
+import { buildDecisionInput, runDecision } from './rilot/config';
+import type { Backend, Fallback, Policy, RoutingConfig } from '@rilot/core-js';
+import { loadRilotEngine, type RilotEngine } from './rilot/wasm';
 
 type ThemeMode = 'day' | 'night';
 
-type RangeFieldProps = {
+const COMMON_REGIONS = [
+  'us-east-1', 'us-east-2', 'us-west-1', 'us-west-2', 'ca-central-1', 'sa-east-1',
+  'eu-west-1', 'eu-west-2', 'eu-west-3', 'eu-central-1', 'eu-north-1',
+  'ap-south-1', 'ap-southeast-1', 'ap-southeast-2', 'ap-northeast-1',
+  'us-central1', 'europe-west4', 'eastus', 'westeurope'
+];
+
+function readStoredView(): ViewMode {
+  try {
+    return localStorage.getItem('rilot-playground-view') === 'research' ? 'research' : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+
+function validBackends(config: RoutingConfig): Backend[] {
+  return Array.isArray(config.backends)
+    ? config.backends.filter((b): b is Backend => !!b && typeof b.id === 'string' && typeof b.region === 'string')
+    : [];
+}
+
+function Toggle<T extends string>({ value, options, onChange, label }: {
+  value: T;
+  options: readonly [T, string][];
+  onChange: (value: T) => void;
   label: string;
-  value: number;
-  onChange: (value: number) => void;
-  min: number;
-  max: number;
-  step: number;
-  inputStep?: number;
-  suffix?: string;
-  decimals?: number;
-};
-
-function clampToRange(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function uniqueRegions(candidates: Candidate[], currentRegion: string | null): string[] {
-  const set = new Set(candidates.map((candidate) => candidate.region));
-  if (currentRegion) {
-    set.add(currentRegion);
-  }
-  return Array.from(set);
-}
-
-function describeFinalStep(step: string): string {
-  switch (step) {
-    case 'scored':
-      return 'Weighted winner';
-    case 'hysteresis':
-      return 'Sticky winner';
-    case 'fallback-local':
-      return 'Fail-safe local';
-    default:
-      return 'No selection';
-  }
-}
-
-function candidatePriority(candidate: DecisionCandidate): number {
-  if (candidate.status === 'selected' || candidate.status === 'sticky-selected' || candidate.status === 'fallback') {
-    return 0;
-  }
-  if (candidate.status === 'accepted') {
-    return 1;
-  }
-  return 2;
-}
-
-function RangeField({
-  label,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  inputStep,
-  suffix,
-  decimals = 0
-}: RangeFieldProps) {
-  const display = `${value.toFixed(decimals)}${suffix ? ` ${suffix}` : ''}`;
-  const normalizedValue = clampToRange(value, min, max);
-  const progress = max === min ? 0 : ((normalizedValue - min) / (max - min)) * 100;
-  const rangeStyle = {
-    ['--range-progress' as string]: `${progress}%`
-  } as CSSProperties;
-
+}) {
   return (
-    <div className="range-control">
-      <div className="range-header">
-        <span className="range-title">
-          {label}: <strong>{display}</strong>
-        </span>
-      </div>
-      <div className="range-input-row">
-        <input
-          className="range-slider"
-          type="range"
-          min={min}
-          max={max}
-          step={step}
-          value={normalizedValue}
-          style={rangeStyle}
-          onChange={(event) => onChange(Number(event.target.value))}
-        />
-        <input
-          className="number-input"
-          type="number"
-          min={min}
-          max={max}
-          step={inputStep ?? step}
-          value={normalizedValue}
-          onChange={(event) => {
-            const nextValue = Number(event.target.value);
-            if (Number.isFinite(nextValue)) {
-              onChange(clampToRange(nextValue, min, max));
-            }
-          }}
-        />
-      </div>
+    <div className="theme-toggle" role="group" aria-label={label}>
+      {options.map(([option, text]) => (
+        <button
+          key={option}
+          className={value === option ? 'theme-button is-active' : 'theme-button'}
+          aria-pressed={value === option}
+          onClick={() => onChange(option)}
+          type="button"
+        >
+          {text}
+        </button>
+      ))}
     </div>
   );
 }
 
 function App() {
-  const [state, setState] = useState<DecisionInput>(() => clonePresetState(presets[0].id));
-  const [activePresetId, setActivePresetId] = useState(presets[0].id);
+  const [state, setState] = useState<PlaygroundState>(() => clonePresetState('checkout'));
+  const [activePresetId, setActivePresetId] = useState<string | null>('checkout');
+  const [view, setView] = useState<ViewMode>(readStoredView);
   const [theme, setTheme] = useState<ThemeMode>('day');
+  const [engine, setEngine] = useState<RilotEngine | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  const result = useMemo(() => computeDecision(state), [state]);
-  const regions = uniqueRegions(state.candidates, state.activeRegion);
-  const chosen = result.candidates.find((candidate) => candidate.id === result.selectedCandidateId) ?? null;
-  const localBaseline = result.candidates.find((candidate) => candidate.id === result.localBaselineId) ?? null;
-  const acceptedCount = result.candidates.filter((candidate) => candidate.accepted).length;
-  const rejectedCount = result.candidates.length - acceptedCount;
-  const activePresetLabel = presets.find((preset) => preset.id === activePresetId)?.label ?? 'Custom state';
+  useEffect(() => {
+    try {
+      localStorage.setItem('rilot-playground-view', view);
+    } catch {
+      // Storage unavailable (private mode); the view simply isn't remembered.
+    }
+  }, [view]);
 
-  const displayedCandidates = useMemo(
-    () =>
-      [...result.candidates].sort(
-        (a, b) => candidatePriority(a) - candidatePriority(b) || a.totalScore - b.totalScore || a.label.localeCompare(b.label)
-      ),
-    [result.candidates]
-  );
-  const latencyMax = Math.max(...result.candidates.map((candidate) => candidate.latencyMs), 1);
-  const carbonMax = Math.max(...result.candidates.map((candidate) => candidate.carbonIntensity), 1);
-  const scoreMax = Math.max(...result.candidates.map((candidate) => candidate.totalScore), 0.001);
+  useEffect(() => {
+    loadRilotEngine()
+      .then(setEngine)
+      .catch((error: unknown) => setLoadError(error instanceof Error ? error.message : String(error)));
+  }, []);
 
-  const updateState = <K extends keyof DecisionInput>(key: K, value: DecisionInput[K]) => {
-    setState((current) => ({ ...current, [key]: value }));
+  const result = useMemo(() => (engine ? runDecision(engine, buildDecisionInput(state)) : null), [engine, state]);
+  const output = result?.ok ? result.value : null;
+  const backends = validBackends(state.config);
+
+  const edit = (update: (current: PlaygroundState) => PlaygroundState) => {
+    setActivePresetId(null);
+    setState(update);
+  };
+  const setRoot = <K extends keyof RoutingConfig>(key: K, value: RoutingConfig[K]) =>
+    edit((current) => {
+      const config = { ...current.config };
+      if (value === undefined) delete config[key];
+      else config[key] = value;
+      return { ...current, config };
+    });
+  const applyPreset = (id: string) => {
+    setActivePresetId(id);
+    setState(clonePresetState(id));
   };
 
-  const applyPreset = (presetId: string) => {
-    setActivePresetId(presetId);
-    setState(clonePresetState(presetId));
-  };
-
-  const updateWeights = (key: keyof DecisionInput['weights'], value: number) => {
-    setState((current) => ({
-      ...current,
-      weights: { ...current.weights, [key]: value }
-    }));
-  };
-
-  const updateGuardrail = (key: keyof DecisionInput['guardrails'], value: number | boolean) => {
-    setState((current) => ({
-      ...current,
-      guardrails: { ...current.guardrails, [key]: value }
-    }));
-  };
-
-  const updateCandidate = (id: string, patch: Partial<Candidate>) => {
-    setState((current) => ({
-      ...current,
-      candidates: current.candidates.map((candidate) => (candidate.id === id ? { ...candidate, ...patch } : candidate))
-    }));
-  };
+  const presetGroups: [PresetGroup, string][] =
+    view === 'research' ? [['production', 'Production examples'], ['research', 'Research scenarios']] : [['production', 'Examples']];
 
   return (
     <div className="page-shell">
       <header className="hero">
         <div>
           <div className="hero-toolbar">
-            <p className="eyebrow">Rilot Research Companion</p>
-            <div className="theme-toggle" aria-label="Theme toggle">
-              <button
-                className={theme === 'day' ? 'theme-button is-active' : 'theme-button'}
-                onClick={() => setTheme('day')}
-                type="button"
-              >
-                Day
-              </button>
-              <button
-                className={theme === 'night' ? 'theme-button is-active' : 'theme-button'}
-                onClick={() => setTheme('night')}
-                type="button"
-              >
-                Night
-              </button>
+            <p className="eyebrow">Rilot Policy Playground</p>
+            <div className="toolbar-group">
+              <Toggle label="View" value={view} onChange={setView} options={[['normal', 'Normal'], ['research', 'Research / Advanced']]} />
+              <Toggle label="Theme" value={theme} onChange={setTheme} options={[['day', 'Day'], ['night', 'Night']]} />
             </div>
           </div>
           <h1>Policy Playground</h1>
           <p className="hero-copy">
-            This simulator recomputes the routing choice on every input change so you can inspect exactly what got
-            accepted, what got rejected, and why a region ultimately won.
+            An interactive visualization of <strong>rilot-core</strong>, the same Rust routing engine used by native Rilot and edge
+            adapters, running here as WebAssembly{engine ? ` (v${engine.version})` : ''}. Carbon data is simulated; no API keys are
+            used.
           </p>
-
-          <div className="trace-strip">
-            <article className="trace-card">
-              <span>Local baseline</span>
-              <strong>{result.localBaselineLabel ?? 'None'}</strong>
-            </article>
-            <article className="trace-card">
-              <span>Active region</span>
-              <strong>{state.activeRegion ?? 'none'}</strong>
-            </article>
-            <article className="trace-card">
-              <span>Accepted candidates</span>
-              <strong>{acceptedCount}</strong>
-            </article>
-            <article className="trace-card">
-              <span>Rejected candidates</span>
-              <strong>{rejectedCount}</strong>
-            </article>
-          </div>
         </div>
 
-        <div className="hero-card winner-card">
-          <div className="hero-card-label">Current outcome</div>
-          <div className="winner-badges">
-            <span className="winner-pill winner-step">{describeFinalStep(result.finalStep)}</span>
-            <span className="winner-pill winner-policy">{state.geoPolicy}</span>
-          </div>
-          <div className="hero-card-value">{result.selectedLabel ?? 'No selection'}</div>
-          <div className="hero-card-meta">{result.selectedRegion ?? 'No region selected'}</div>
-          <p className="hero-card-reason">{result.selectedReason}</p>
-
-          <div className="winner-stats">
-            <div>
-              <span>Request class</span>
-              <strong>{state.requestClass}</strong>
-            </div>
-            <div>
-              <span>User region</span>
-              <strong>{state.userRegion}</strong>
-            </div>
-            <div>
-              <span>Active preset</span>
-              <strong>{presets.find((preset) => preset.id === activePresetId)?.label ?? 'Custom state'}</strong>
-            </div>
-          </div>
+        <div className="hero-card winner-card" aria-live="polite">
+          <div className="hero-card-label">Decision</div>
+          {output ? (
+            <>
+              <div className="winner-badges">
+                <span className="winner-pill winner-step">{REASON_LABELS[output.reason.code] ?? output.reason.code}</span>
+                <span className="winner-pill winner-policy">{output.effective.policy}</span>
+              </div>
+              <div className="hero-card-value">{output.selected_backend_id ?? 'No selection'}</div>
+              <div className="hero-card-meta">{output.selected_region ?? '—'}</div>
+              <p className="hero-card-reason">{output.reason.message}</p>
+            </>
+          ) : (
+            <p className="hero-card-reason">
+              {loadError
+                ? `The routing engine could not be loaded: ${loadError}`
+                : result && !result.ok
+                  ? result.error
+                  : 'Loading the rilot-core routing engine…'}
+            </p>
+          )}
         </div>
       </header>
 
@@ -251,466 +151,139 @@ function App() {
         <section className="panel controls-panel">
           <div className="section-heading">
             <div>
-              <span className="section-chip request-chip">Request</span>
-              <h2>1. Request setup</h2>
-              <p className="panel-copy">
-                This is what you send into the simulator: the request context, the policy stance, and the guardrails that limit what routing is allowed to do.
-              </p>
+              <span className="section-chip request-chip">Input</span>
+              <h2>Request and config</h2>
             </div>
           </div>
 
-          <div className="summary-grid request-summary-grid">
-            <article className="summary-card request-summary-card">
-              <span>Request class</span>
-              <strong>{state.requestClass}</strong>
-            </article>
-            <article className="summary-card request-summary-card">
-              <span>User region</span>
-              <strong>{state.userRegion}</strong>
-            </article>
-            <article className="summary-card request-summary-card">
-              <span>Active region</span>
-              <strong>{state.activeRegion ?? 'none'}</strong>
-            </article>
-            <article className="summary-card request-summary-card">
-              <span>Preset</span>
-              <strong>{activePresetLabel}</strong>
-            </article>
-          </div>
-
-          <div className="preset-grid">
-            {presets.map((preset) => (
-              <button
-                key={preset.id}
-                className={preset.id === activePresetId ? 'preset-button is-active' : 'preset-button'}
-                onClick={() => applyPreset(preset.id)}
-                type="button"
-              >
-                <strong>{preset.label}</strong>
-                <span>{preset.description}</span>
-                <span className="preset-hover-hint">Hover for detailed notes</span>
-                <div className="preset-tooltip" role="note" aria-label={`${preset.label} notes`}>
-                  <strong>Detailed notes</strong>
-                  <ul>
-                    {preset.notes.map((note) => (
-                      <li key={note}>{note}</li>
-                    ))}
-                  </ul>
-                </div>
-              </button>
-            ))}
-          </div>
+          {presetGroups.map(([group, title]) => (
+            <div key={group} className="control-section">
+              <h3>{title}</h3>
+              <div className="preset-grid">
+                {presets
+                  .filter((p) => p.group === group)
+                  .map((preset) => (
+                    <button
+                      key={preset.id}
+                      className={preset.id === activePresetId ? 'preset-button is-active' : 'preset-button'}
+                      onClick={() => applyPreset(preset.id)}
+                      type="button"
+                    >
+                      <strong>{preset.label}</strong>
+                      <span>{preset.description}</span>
+                      <div className="preset-tooltip" role="note" aria-label={`${preset.label} notes`}>
+                        <ul>
+                          {preset.notes.map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          ))}
 
           <div className="control-section">
-            <h3>Context</h3>
+            <h3>Request</h3>
             <div className="control-group">
               <label>
-                Request class
-                <select value={state.requestClass} onChange={(event) => updateState('requestClass', event.target.value as RequestClass)}>
-                  <option value="interactive">interactive</option>
-                  <option value="standard">standard</option>
-                  <option value="background">background</option>
-                </select>
+                Path
+                <input value={state.path} onChange={(e) => edit((c) => ({ ...c, path: e.target.value || '/' }))} />
               </label>
               <label>
                 User region
-                <select value={state.userRegion} onChange={(event) => updateState('userRegion', event.target.value)}>
-                  {regions.map((region) => (
-                    <option key={region} value={region}>
-                      {region}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Current active region
-                <select value={state.activeRegion ?? ''} onChange={(event) => updateState('activeRegion', event.target.value || null)}>
-                  <option value="">none</option>
-                  {regions.map((region) => (
-                    <option key={region} value={region}>
-                      {region}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                Geo policy
-                <select value={state.geoPolicy} onChange={(event) => updateState('geoPolicy', event.target.value as GeoPolicy)}>
-                  <option value="local-only">local-only</option>
-                  <option value="prefer-local">prefer-local</option>
-                  <option value="global">global</option>
-                </select>
-              </label>
-            </div>
-          </div>
-
-          <div className="control-section">
-            <h3>Policy weights</h3>
-            <p className="helper-text">
-              Weights are relative. You can type exact numbers here, and the simulator will normalize them before scoring.
-            </p>
-            <div className="slider-grid">
-              {([
-                ['carbon', 'Carbon weight'],
-                ['latency', 'Latency weight'],
-                ['reliability', 'Reliability weight'],
-                ['cost', 'Cost weight']
-              ] as const).map(([key, label]) => (
-                <RangeField
-                  key={key}
-                  label={label}
-                  value={state.weights[key]}
-                  onChange={(value) => updateWeights(key, value)}
-                  min={0}
-                  max={250}
-                  step={1}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="control-section">
-            <h3>Guardrails</h3>
-            <p className="helper-text">Drag for quick exploration or type an exact value when you want a sharper before/after comparison.</p>
-            <div className="slider-grid">
-              <RangeField
-                label="Max latency delta"
-                value={state.guardrails.maxLatencyDeltaMs}
-                onChange={(value) => updateGuardrail('maxLatencyDeltaMs', value)}
-                min={0}
-                max={300}
-                step={1}
-                suffix="ms"
-              />
-              <RangeField
-                label="Hard max latency"
-                value={state.guardrails.hardMaxLatencyMs}
-                onChange={(value) => updateGuardrail('hardMaxLatencyMs', value)}
-                min={20}
-                max={500}
-                step={1}
-                suffix="ms"
-              />
-              <RangeField
-                label="Min carbon benefit"
-                value={state.guardrails.minCarbonBenefit}
-                onChange={(value) => updateGuardrail('minCarbonBenefit', value)}
-                min={0}
-                max={300}
-                step={1}
-                suffix="gCO2/kWh"
-              />
-              <RangeField
-                label="Hysteresis threshold"
-                value={state.guardrails.hysteresisThreshold}
-                onChange={(value) => updateGuardrail('hysteresisThreshold', value)}
-                min={0}
-                max={0.5}
-                step={0.01}
-                inputStep={0.01}
-                decimals={2}
-              />
-              <label className="checkbox-row">
                 <input
-                  type="checkbox"
-                  checked={state.guardrails.failSafeToLocal}
-                  onChange={(event) => updateGuardrail('failSafeToLocal', event.target.checked)}
+                  list="rilot-regions"
+                  value={state.userRegion}
+                  onChange={(e) => edit((c) => ({ ...c, userRegion: e.target.value }))}
                 />
-                <span>Fail-safe to local baseline</span>
+                <datalist id="rilot-regions">
+                  {Array.from(new Set([...backends.map((b) => b.region), ...COMMON_REGIONS])).map((r) => (
+                    <option key={r} value={r} />
+                  ))}
+                </datalist>
               </label>
             </div>
+            <div className="slider-grid">
+              <RangeField
+                label="Carbon signal age"
+                value={state.carbon.signalAgeSeconds}
+                onChange={(value) => edit((c) => ({ ...c, carbon: { ...c.carbon, signalAgeSeconds: value } }))}
+                min={0}
+                max={1200}
+                step={10}
+                suffix="s"
+              />
+            </div>
           </div>
+
+          <div className="control-section">
+            <h3>Root config</h3>
+            <p className="helper-text">Routing rules can override these per path; the decision panel shows what was inherited.</p>
+            <div className="control-group">
+              <SelectField<Policy>
+                label="Policy"
+                value={state.config.policy ?? 'balanced'}
+                options={['latency', 'balanced', 'carbon']}
+                onChange={(value) => setRoot('policy', value)}
+              />
+              <SelectField<Fallback>
+                label="Fallback"
+                value={state.config.fallback ?? 'nearest'}
+                options={['nearest', 'lowest-latency', 'none']}
+                onChange={(value) => setRoot('fallback', value)}
+              />
+            </div>
+            <div className="slider-grid">
+              <OptionalRange
+                label="Radius"
+                offLabel="unlimited"
+                value={state.config.radius_km}
+                defaultValue={2000}
+                onChange={(value) => setRoot('radius_km', value)}
+                min={0}
+                max={15000}
+                step={100}
+                suffix="km"
+              />
+            </div>
+            <details className="config-details">
+              <summary>Edit the full config as JSON (backends, routing rules, …)</summary>
+              <ConfigEditor config={state.config} onChange={(config) => edit((c) => ({ ...c, config }))} />
+            </details>
+          </div>
+
+          {view === 'research' ? (
+            <ResearchControls state={state} backends={backends} currentWeights={output?.weights ?? null} edit={edit} />
+          ) : null}
         </section>
 
         <section className="panel output-panel">
           <div className="section-heading">
             <div>
-              <span className="section-chip response-chip">Response</span>
-              <h2>2. Routing response</h2>
-              <p className="panel-copy">
-                This is what the decision engine returns from those same inputs: who won, who got rejected, and whether the result came from scoring, hysteresis, or fail-safe behavior.
-              </p>
+              <span className="section-chip response-chip">rilot-core</span>
+              <h2>Routing decision</h2>
             </div>
           </div>
-
-          <div className="response-banner">
-            <div>
-              <span>Current routing answer</span>
-              <strong>{chosen ? `${chosen.label} (${chosen.region})` : 'No region selected'}</strong>
+          {result && !result.ok ? (
+            <div className="reason-box reject-box" role="alert">
+              <strong>rilot-core rejected this input</strong>
+              <p>{result.error}</p>
             </div>
-            <p>
-              {chosen
-                ? `${chosen.label} is serving the request right now.`
-                : 'No candidate cleared the current rules, so nothing is selected.'}
-            </p>
-          </div>
-
-          <div className="candidate-visual-panel">
-            <div className="section-heading compact-heading">
-              <div>
-                <h3>Live candidate comparison</h3>
-                <p className="panel-copy">
-                  Change any number on the left and these bars update immediately so you can see who is faster, cleaner, and lower-scoring.
-                </p>
-              </div>
-            </div>
-
-            <div className="candidate-visual-list">
-              {displayedCandidates.map((candidate) => {
-                const latencyWidth = `${(candidate.latencyMs / latencyMax) * 100}%`;
-                const carbonWidth = `${(candidate.carbonIntensity / carbonMax) * 100}%`;
-                const scoreWidth = `${(candidate.totalScore / scoreMax) * 100}%`;
-
-                return (
-                  <article key={`visual-${candidate.id}`} className={`candidate-visual-card status-${candidate.status}`}>
-                    <div className="candidate-visual-head">
-                      <div>
-                        <strong>{candidate.label}</strong>
-                        <span>
-                          {candidate.region}
-                          {candidate.isLocalBaseline ? ' · local baseline' : ''}
-                        </span>
-                      </div>
-                      <span className={`status-pill status-pill-${candidate.status}`}>{candidate.status}</span>
-                    </div>
-
-                    <div className="visual-metric-stack">
-                      <div className="visual-metric-row">
-                        <span>Latency</span>
-                        <div className="visual-bar-track">
-                          <div className="visual-bar-fill visual-latency" style={{ width: latencyWidth }} />
-                        </div>
-                        <strong>{candidate.latencyMs.toFixed(1)} ms</strong>
-                      </div>
-                      <div className="visual-metric-row">
-                        <span>Carbon</span>
-                        <div className="visual-bar-track">
-                          <div className="visual-bar-fill visual-carbon" style={{ width: carbonWidth }} />
-                        </div>
-                        <strong>{candidate.carbonIntensity.toFixed(1)} gCO2/kWh</strong>
-                      </div>
-                      <div className="visual-metric-row">
-                        <span>Score</span>
-                        <div className="visual-bar-track">
-                          <div className="visual-bar-fill visual-score" style={{ width: scoreWidth }} />
-                        </div>
-                        <strong>{candidate.totalScore.toFixed(3)}</strong>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="summary-grid">
-            <article className="summary-card">
-              <span>Local baseline</span>
-              <strong>{result.localBaselineLabel ?? 'None'}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Selected region</span>
-              <strong>{result.selectedRegion ?? 'None'}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Final step</span>
-              <strong>{describeFinalStep(result.finalStep)}</strong>
-            </article>
-            <article className="summary-card">
-              <span>Normalized weights</span>
-              <strong>
-                C {result.normalizedWeights.carbon.toFixed(2)} / L {result.normalizedWeights.latency.toFixed(2)} / R{' '}
-                {result.normalizedWeights.reliability.toFixed(2)} / $ {result.normalizedWeights.cost.toFixed(2)}
-              </strong>
-            </article>
-          </div>
-
-          <div className="decision-trace">
-            <h3>Decision trace</h3>
-            <ol>
-              <li>Local baseline: {localBaseline ? `${localBaseline.label} at ${localBaseline.latencyMs.toFixed(1)} ms` : 'no local baseline found'}.</li>
-              <li>{acceptedCount} candidate(s) stayed inside the current geo policy and guardrails.</li>
-              <li>{rejectedCount} candidate(s) were filtered out before final scoring.</li>
-              <li>{result.selectedReason}</li>
-            </ol>
-          </div>
-
-          {chosen ? (
-            <div className="chosen-breakdown">
-              <div className="chosen-header">
-                <div>
-                  <h3>Chosen candidate score breakdown</h3>
-                  <p>{chosen.label} is currently carrying the response for this request setup.</p>
-                </div>
-                <span className={`status-pill status-pill-${chosen.status}`}>{chosen.status}</span>
-              </div>
-
-              <div className="metric-grid">
-                <article className="metric-card">
-                  <span>Carbon</span>
-                  <strong>{chosen.carbonIntensity.toFixed(1)} gCO2/kWh</strong>
-                  <small>
-                    Weighted {chosen.weighted.carbon.toFixed(3)} from normalized {chosen.normalized.carbon.toFixed(3)}
-                  </small>
-                </article>
-                <article className="metric-card">
-                  <span>Latency</span>
-                  <strong>{chosen.latencyMs.toFixed(1)} ms</strong>
-                  <small>
-                    Weighted {chosen.weighted.latency.toFixed(3)} from normalized {chosen.normalized.latency.toFixed(3)}
-                  </small>
-                </article>
-                <article className="metric-card">
-                  <span>Reliability risk</span>
-                  <strong>{chosen.reliabilityRisk.toFixed(1)}</strong>
-                  <small>
-                    Weighted {chosen.weighted.reliability.toFixed(3)} from normalized {chosen.normalized.reliability.toFixed(3)}
-                  </small>
-                </article>
-                <article className="metric-card">
-                  <span>Cost</span>
-                  <strong>{chosen.cost.toFixed(2)}</strong>
-                  <small>
-                    Weighted {chosen.weighted.cost.toFixed(3)} from normalized {chosen.normalized.cost.toFixed(3)}
-                  </small>
-                </article>
-              </div>
-
-              <div className="total-score-box">
-                <span>Total score</span>
-                <strong>{chosen.totalScore.toFixed(3)}</strong>
-              </div>
-            </div>
-          ) : (
-            <div className="chosen-breakdown empty-state">No candidate is selected under the current inputs.</div>
-          )}
+          ) : null}
+          {output ? (
+            <DecisionPanel
+              output={output}
+              view={view}
+              signals={result?.input.carbon?.signals ?? []}
+              signalAgeSeconds={state.carbon.signalAgeSeconds}
+              maxAgeSeconds={state.carbon.maxAgeSeconds}
+              source={state.carbon.source}
+            />
+          ) : null}
         </section>
       </div>
-
-      <section className="panel candidates-panel">
-        <div className="panel-header">
-          <div>
-            <span className="section-chip audit-chip">Candidates</span>
-            <h2>3. Candidate details</h2>
-            <p className="panel-copy">
-              The selected candidate stays at the top, followed by other valid options and then rejected ones with exact reasons.
-            </p>
-          </div>
-        </div>
-
-        <div className="candidate-grid">
-          {displayedCandidates.map((candidate) => (
-            <article key={candidate.id} className={`candidate-card status-${candidate.status}`}>
-              <div className="candidate-topline">
-                <div>
-                  <input
-                    className="candidate-label-input"
-                    value={candidate.label}
-                    onChange={(event) => updateCandidate(candidate.id, { label: event.target.value })}
-                  />
-                  <div className="candidate-meta">
-                    {candidate.region}
-                    {candidate.isLocalBaseline ? ' · local baseline' : ''}
-                    {state.activeRegion === candidate.region ? ' · active region' : ''}
-                  </div>
-                </div>
-                <span className={`status-pill status-pill-${candidate.status}`}>{candidate.status}</span>
-              </div>
-
-              <div className="candidate-editor-grid">
-                <label>
-                  Region
-                  <input value={candidate.region} onChange={(event) => updateCandidate(candidate.id, { region: event.target.value })} />
-                </label>
-                <label>
-                  Latency (ms)
-                  <input
-                    type="number"
-                    value={candidate.latencyMs}
-                    onChange={(event) => updateCandidate(candidate.id, { latencyMs: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  Carbon (gCO2/kWh)
-                  <input
-                    type="number"
-                    value={candidate.carbonIntensity}
-                    onChange={(event) => updateCandidate(candidate.id, { carbonIntensity: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  Reliability risk
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={candidate.reliabilityRisk}
-                    onChange={(event) => updateCandidate(candidate.id, { reliabilityRisk: Number(event.target.value) })}
-                  />
-                </label>
-                <label>
-                  Cost
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={candidate.cost}
-                    onChange={(event) => updateCandidate(candidate.id, { cost: Number(event.target.value) })}
-                  />
-                </label>
-                <label className="checkbox-row compact">
-                  <input
-                    type="checkbox"
-                    checked={candidate.enabled}
-                    onChange={(event) => updateCandidate(candidate.id, { enabled: event.target.checked })}
-                  />
-                  <span>Enabled</span>
-                </label>
-              </div>
-
-              <div className="candidate-kpis">
-                <div>
-                  <span>Latency delta</span>
-                  <strong>{candidate.latencyDeltaVsLocal.toFixed(1)} ms</strong>
-                </div>
-                <div>
-                  <span>Carbon benefit</span>
-                  <strong>{candidate.carbonBenefitVsLocal.toFixed(1)} gCO2/kWh</strong>
-                </div>
-                <div>
-                  <span>Total score</span>
-                  <strong>{candidate.totalScore.toFixed(3)}</strong>
-                </div>
-              </div>
-
-              {candidate.id === result.selectedCandidateId ? (
-                <div className="reason-box chosen-box">
-                  <strong>Selected now</strong>
-                  <ul>
-                    <li>{result.selectedReason}</li>
-                    <li>Carbon contribution: {candidate.weighted.carbon.toFixed(3)}</li>
-                    <li>Latency contribution: {candidate.weighted.latency.toFixed(3)}</li>
-                    <li>Reliability contribution: {candidate.weighted.reliability.toFixed(3)}</li>
-                    <li>Cost contribution: {candidate.weighted.cost.toFixed(3)}</li>
-                  </ul>
-                </div>
-              ) : candidate.rejectionReasons.length > 0 ? (
-                <div className="reason-box reject-box">
-                  <strong>Rejected because</strong>
-                  <ul>
-                    {candidate.rejectionReasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : (
-                <div className="reason-box accept-box">
-                  <strong>Accepted but not selected</strong>
-                  <p>This candidate passed all filters, but another option finished with a lower weighted score.</p>
-                </div>
-              )}
-            </article>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }

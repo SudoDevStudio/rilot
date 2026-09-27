@@ -1,0 +1,52 @@
+{
+  "name": "expired-calls-provider",
+  "description": "Beyond max age the provider is called and the result is written to every store.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {
+    "kv": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 900,
+        "observed_at": "2026-09-20T11:45:00Z"
+      }
+    ]
+  },
+  "provider": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 180,
+        "observed_at": "2026-09-20T12:00:00Z",
+        "source": "live"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 180,
+        "source": "live"
+      }
+    ],
+    "provider_called_with": [
+      "us-east-1"
+    ],
+    "refreshed": [],
+    "store_writes": {
+      "memory": [
+        "us-east-1"
+      ],
+      "kv": [
+        "us-east-1"
+      ]
+    }
+  }
+}

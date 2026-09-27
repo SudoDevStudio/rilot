@@ -20,17 +20,29 @@ Optional env vars:
 - `RILOT_HOST` (default `127.0.0.1`)
 - `RILOT_PORT` (default `8080`)
 - `RILOT_ENV=production` (enables Wasm component cache)
+- `RILOT_EXPOSE_RESEARCH_HEADERS=true` (adds the `x-rilot-*` decision headers)
+- `RILOT_ELECTRICITYMAP_API_KEY` (live carbon data)
+
+A ready-to-run config is at `examples/config/config.json`:
+
+```bash
+cp examples/config/config.json config.json
+```
 
 ## ElectricityMap provider
 
 To enable live carbon data:
 
 1. Set `carbon.provider` to `electricitymap`.
-2. Set `carbon.electricitymap_api_key`.
+2. Provide the API key through `RILOT_ELECTRICITYMAP_API_KEY` (preferred) or `carbon.electricitymap_api_key`.
 3. Optionally set `carbon.electricitymap_api_token_header` (default is `auth-token`).
-4. Optionally set `carbon.electricitymap_zone_map` to map Rilot zone names to ElectricityMap zone IDs.
+4. Optionally set `carbon.electricitymap_zone_map`. The provider already knows the common cloud regions (for example `us-east-1 → US-MIDA-PJM`); this is only an override for regions it does not cover.
 
-Rilot reads provider data through async refresh and cache. Requests do not block on provider calls.
+How signals are served (see [carbon-layer.md](carbon-layer.md)):
+
+- A cached signal younger than `carbon.refresh_seconds` is used directly.
+- Older than that but within `carbon.max_age_seconds`: it is served immediately and refreshed in the background.
+- Missing or older than `max_age_seconds`: the provider is called on the request path, bounded by `carbon.provider_timeout_ms`. If that call fails, the last known value is passed on and the engine reports the backend as `carbon-unavailable`.
 
 ## Offline ElectricityMap-style testing
 
@@ -38,7 +50,7 @@ Use standalone fixture mode when you want deterministic behavior without calling
 
 1. Set `carbon.provider` to `electricitymap-local`.
 2. Set `carbon.electricitymap_local_fixture` to a JSON file path.
-3. Set `carbon.cache_ttl_seconds` to your desired refresh window (e.g. `10`).
+3. Set `carbon.refresh_seconds` to your desired refresh window (e.g. `10`). Legacy configs may still use the old name `cache_ttl_seconds`; both are accepted.
 
 Fixture file example is included at:
 
@@ -78,7 +90,7 @@ Defaults:
 - 10-zone profile from `config.live.json` (rewritten to temp config for the run)
 - total request target `50000` (`25000` per region)
 - fixed local carbon source CSV: `research-kit/carbon-traces/electricitymap-sandbox-20260328T2000Z.csv`
-- provider cache minimum `5s` for experiment (`carbon.cache_ttl_seconds>=5`)
+- provider cache minimum `5s` for experiment (`carbon.refresh_seconds>=5`)
 - coverage-derived Electricity Maps zone aliases from `research-kit/2026-03-29-electricity-maps-coverage-data.csv` when present
 - CSV-only local ElectricityMap-compatible provider (`scripts/carbon-signal-api.js`) is used for signals
 - API serves data in-memory by default (optional snapshot write via `CARBON_API_OUT_FILE`)
@@ -91,23 +103,27 @@ The runner refreshes the `research-kit/get_result/` workspace at the start of ea
 ## Health and validation checklist
 
 1. `curl -s http://127.0.0.1:8080/metrics`
-2. Send test request with region header:
-   - `curl -H 'x-user-region: us-east' http://127.0.0.1:8080/`
-3. Check logs for `decision=` and `rollup=` entries.
+2. Send a test request as a user in a given region:
+   - `curl -H 'x-user-region: us-east-1' http://127.0.0.1:8080/`
+3. Or as a user at given coordinates, which is the easiest way to exercise `radius_km`:
+   - `curl -H 'x-user-location: 51.5,-0.13' http://127.0.0.1:8080/reports/monthly`
+   - With `RILOT_EXPOSE_RESEARCH_HEADERS=true`, `x-rilot-zone-filter-reasons` then shows which backends fell outside the radius.
+4. Check logs for `decision=` and `rollup=` entries.
 
 ## Troubleshooting
 
 ### No matching route
 
-- Confirm `rule.path` and `rule.type` in config.
-- Ensure each `rule.path` is unique across `proxies[]`.
-- Ensure request path uses expected prefix for `prefix` rules (`contain` is a legacy alias).
+- Simple config: a request that matches no `routing_rules` entry uses the root config, so a 404 means the legacy format is in use.
+- Legacy config: confirm `rule.path` / `rule.type`, and that each `rule.path` is unique across `proxies[]` (`contain` is an alias for `prefix`).
+- `/checkout/*` matches `/checkout` and everything under it; a path without `*` is an exact match.
 
 ### No carbon-aware behavior
 
-- Confirm `policy.carbon_cursor_enabled=true`.
-- Confirm zones are configured and non-empty.
-- Confirm request not forcing overrides via headers.
+- Confirm the effective `policy` is `balanced` or `carbon`. The `latency` policy never looks at carbon (legacy equivalent: `carbon_cursor_enabled=true`).
+- Confirm `backends` are configured and non-empty (legacy: `zones`).
+- Confirm the request is not overriding behavior through `x-rilot-carbon-cursor` / `x-rilot-class`.
+- With research headers on, check `x-rilot-zone-filter-reasons`: `carbon-unavailable` means the signal is missing or older than `max_age_seconds`.
 
 ### ElectricityMap not used
 
@@ -123,10 +139,11 @@ The runner refreshes the `research-kit/get_result/` workspace at the start of ea
 - Verify plugin path in `override_file`.
 - Check timeout (`plugin_timeout_ms`) and plugin logs/stderr.
 
-### Unexpected fallback to latency
+### Unexpected fallback
 
-- Carbon signals may be missing or provider timeout occurred.
-- Validate provider settings and fallback `zone_current` values.
+- Check `x-rilot-decision-reason`: `fallback-nearest` or `fallback-lowest-latency` means no backend passed the eligibility checks.
+- `x-rilot-zone-filter-reasons` gives the reason per backend (`outside-radius`, `carbon-unavailable`, `latency-constraint`, `health-constraint`, `capacity-constraint`).
+- A carbon provider timeout or a missing API key shows up as `carbon-unavailable` on every backend.
 
 ### High routing variance
 
@@ -135,7 +152,8 @@ The runner refreshes the `research-kit/get_result/` workspace at the start of ea
 
 ## Performance tuning
 
-- Keep `max_candidates` small.
-- Reduce `decision_log_sample_rate` for high traffic.
+- Keep `advanced.max_candidates` small.
+- Reduce `metrics.decision_log_sample_rate` for high traffic.
 - Use production mode for Wasm cache and startup preloading of configured override components.
-- Set realistic `base_rtt_ms` per zone.
+- Set realistic `rtt_ms` per backend (legacy: `base_rtt_ms` per zone), or leave it unset to let the engine estimate latency from the region catalog.
+- Raise `carbon.refresh_seconds` so fewer requests trigger a background refresh.

@@ -11,7 +11,10 @@ This folder contains the reproducible comparative-evaluation workflow for Rilot 
 - `scripts/run_comparative_evaluation.py`: request-level and summary report generator.
 - `scripts/carbon-signal-api.js`: local ElectricityMap-compatible API for reproducible runs.
 - `carbon-traces/us-grid-sample.csv`: sample trace format.
+- `carbon-traces/electricitymap-sandbox-20260328T2000Z.csv`: fixed carbon source used by the comparative run.
 - `carbon-traces/electricitymap-latest-sample.json`: sample JSON fixture for standalone `electricitymap-local` mode.
+
+`config.docker.json` and `config.live.json` use the legacy `proxies[]` format. Rilot still loads it and translates it into the current routing config at startup, so these experiments keep working unchanged; see the legacy section of [../docs/config-reference.md](../docs/config-reference.md).
 
 ## Quickstart
 
@@ -19,8 +22,9 @@ This folder contains the reproducible comparative-evaluation workflow for Rilot 
 ./scripts/run_comparative_experiment.sh
 ```
 
-Outputs are written to `./get_result/comparative-results` by default.
-The runner also generates `charts.html` automatically in that folder.
+Outputs are written to `./get_result/comparative-results` by default, and the runner also generates `charts.html` there.
+
+`get_result/` is **generated, not committed**: every run replaces it. Results are only valid for the engine version that produced them, so re-run the experiment after changing routing or carbon behavior.
 
 Generated output includes:
 

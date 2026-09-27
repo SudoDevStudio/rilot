@@ -1,24 +1,35 @@
+//! Native HTTP adapter.
+//!
+//! All routing decisions come from `rilot_core`. This module only supplies
+//! request metadata, runtime health, and carbon signals, then forwards the
+//! request to whichever backend the core selected.
+
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{
     header::{HeaderName, HeaderValue},
     Body, Client, Request, Response, Server, StatusCode, Uri,
 };
 use once_cell::sync::Lazy;
-use reqwest::header::{HeaderMap, HeaderName as ReqHeaderName, HeaderValue as ReqHeaderValue};
+use rilot_core::cookie;
+use rilot_core::{
+    BackendRuntime, CandidateEvaluation, CarbonInput, CarbonSignal, DecisionContext,
+    DecisionOutput, GeoPoint, PreviousDecision, RequestContext, RequestHints, RouteClass,
+    RoutingConfig, Timestamp,
+};
 use serde::Serialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
-use std::path::Path;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
+use crate::carbon::now_timestamp;
 use crate::{config, wasm_engine};
+use rilot_carbon::CarbonService;
 
-const CROSS_REGION_RTT_PENALTY_MS: f64 = 40.0;
 const ERROR_RATE_WINDOW_SIZE: usize = 200;
-static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 static CACHE_TTL_LEFT_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-cc-ttl-left"));
 static SELECTED_ZONE_HEADER: Lazy<HeaderName> =
@@ -37,16 +48,16 @@ static CARBON_SAVED_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-carbon-saved-vs-worst"));
 static CARBON_SAVED_PERCENT_HEADER: Lazy<HeaderName> =
     Lazy::new(|| HeaderName::from_static("x-rilot-carbon-saved-vs-worst-percent"));
-static EXPOSE_RESEARCH_HEADERS: Lazy<bool> = Lazy::new(|| {
-    std::env::var("RILOT_EXPOSE_RESEARCH_HEADERS")
+static EXPOSE_RESEARCH_HEADERS: Lazy<bool> =
+    Lazy::new(|| env_flag("RILOT_EXPOSE_RESEARCH_HEADERS"));
+static EMULATE_CROSS_REGION_RTT: Lazy<bool> =
+    Lazy::new(|| env_flag("RILOT_EMULATE_CROSS_REGION_RTT"));
+
+fn env_flag(name: &str) -> bool {
+    std::env::var(name)
         .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
         .unwrap_or(false)
-});
-static EMULATE_CROSS_REGION_RTT: Lazy<bool> = Lazy::new(|| {
-    std::env::var("RILOT_EMULATE_CROSS_REGION_RTT")
-        .map(|v| matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on"))
-        .unwrap_or(false)
-});
+}
 
 #[derive(Serialize)]
 struct WasmInput {
@@ -56,29 +67,10 @@ struct WasmInput {
     body: String,
 }
 
-#[derive(Clone)]
-struct ZoneCandidate {
-    name: String,
-    app_uri: String,
-    region: String,
-    order: usize,
-    base_rtt_ms: f64,
-    cost_weight: f64,
-    max_in_flight: Option<usize>,
-    tags: Vec<String>,
-}
-
 #[derive(Default, Clone)]
 struct ZoneRuntimeStats {
     recent_outcomes: VecDeque<bool>,
     recent_error_count: usize,
-}
-
-#[derive(Clone)]
-struct CachedCarbon {
-    current: Option<f64>,
-    forecast_next: Option<f64>,
-    expires_at: Instant,
 }
 
 #[derive(Default, Clone)]
@@ -100,21 +92,12 @@ struct MetricsStore {
     carbon_intensity_g_per_kwh: HashMap<String, f64>,
 }
 
-#[derive(Clone)]
-struct LastDecision {
-    zone: String,
-    score: f64,
-    at: Instant,
-}
-
 #[derive(Default)]
 struct RuntimeState {
     metrics: MetricsStore,
     zone_stats: HashMap<String, ZoneRuntimeStats>,
     zone_in_flight: HashMap<String, usize>,
-    carbon_cache: HashMap<String, CachedCarbon>,
-    refresh_in_flight: HashSet<String>,
-    last_decision_by_route: HashMap<String, LastDecision>,
+    last_decision_by_route: HashMap<String, PreviousDecision>,
     decision_counter: u64,
 }
 
@@ -151,45 +134,17 @@ impl AppState {
     }
 }
 
-#[derive(Clone)]
-struct StaticState {
-    zones_by_route: Arc<HashMap<String, Vec<ZoneCandidate>>>,
-}
-
-#[derive(Clone)]
-struct ZoneScore {
-    zone: ZoneCandidate,
-    score: f64,
-    carbon_g_per_kwh: Option<f64>,
-    zone_carbon_intensity_g_per_kwh: String,
-    eligible_zone_carbon_intensity_g_per_kwh: String,
-    zone_filter_reasons: String,
-    carbon_saved_vs_worst_g_per_kwh: f64,
-    carbon_saved_vs_worst_percent: f64,
-    latency_ms: f64,
-    error_rate: f64,
-    cost: f64,
-    filtered_out_reason: Option<String>,
-}
-
-#[derive(Clone)]
-struct CarbonSignal {
-    current: Option<f64>,
-    forecast_next: Option<f64>,
-}
-
-pub async fn start_proxy(config: Arc<config::Config>) {
+pub async fn start_proxy(config: Arc<config::Config>, carbon: Arc<CarbonService>) {
     let state = AppState::new();
-    let static_state = build_static_state(&config);
     spawn_rollup_task(config.clone(), state.clone());
 
     let make_svc = make_service_fn(move |_conn| {
         let cfg = config.clone();
         let st = state.clone();
-        let ss = static_state.clone();
+        let cs = carbon.clone();
         async move {
             Ok::<_, Infallible>(service_fn(move |req| {
-                handle_request(req, cfg.clone(), st.clone(), ss.clone())
+                handle_request(req, cfg.clone(), st.clone(), cs.clone())
             }))
         }
     });
@@ -205,16 +160,6 @@ pub async fn start_proxy(config: Arc<config::Config>) {
     let server = Server::bind(&addr).serve(make_svc);
     if let Err(e) = server.await {
         eprintln!("Server error: {}", e);
-    }
-}
-
-fn build_static_state(config: &config::Config) -> StaticState {
-    let mut zones_by_route = HashMap::new();
-    for proxy in &config.proxies {
-        zones_by_route.insert(proxy.rule.path.clone(), resolve_zones(proxy));
-    }
-    StaticState {
-        zones_by_route: Arc::new(zones_by_route),
     }
 }
 
@@ -278,19 +223,132 @@ fn simple_response(
         .unwrap())
 }
 
-fn route_matches(rule: &config::ProxyRule, path: &str) -> bool {
-    match rule.r#type.as_str() {
-        "exact" => path == rule.path,
-        "prefix" | "contain" => path.starts_with(&rule.path),
-        _ => path.starts_with(&rule.path),
+/// Cookie a site sets to route its own pages per session, for example
+/// `rilot_policy=/products/*:carbon,/checkout/*:latency`.
+pub const POLICY_COOKIE: &str = "rilot_policy";
+
+/// Builds the core request context from HTTP headers.
+///
+/// Location comes from `x-user-location: <lat>,<lon>` (one header, easiest for
+/// testing), or from the separate `x-user-lat` / `x-user-lon` pair. An
+/// unparseable value is treated as "location unknown" rather than an error.
+///
+/// A per-request policy can arrive as `x-rilot-policy` or in the session
+/// cookie; an explicit header wins. Both the cookie parsing and the pattern
+/// matching live in `rilot_core::cookie`, so the Cloudflare Worker and this
+/// proxy cannot disagree about what a cookie means.
+fn request_context(path: &str, headers: &HashMap<String, String>) -> RequestContext {
+    let get = |k: &str| headers.get(k).map(|v| v.trim()).filter(|v| !v.is_empty());
+    let user_location = get("x-user-location")
+        .and_then(GeoPoint::parse)
+        .or_else(|| {
+            match (
+                get("x-user-lat").and_then(|v| v.parse::<f64>().ok()),
+                get("x-user-lon").and_then(|v| v.parse::<f64>().ok()),
+            ) {
+                (Some(lat), Some(lon)) => Some(GeoPoint { lat, lon }).filter(GeoPoint::is_valid),
+                _ => None,
+            }
+        });
+    let mut hints = RequestHints::from_headers(|k| headers.get(k).map(String::as_str));
+    if hints.policy.is_none() {
+        hints.policy = get("cookie")
+            .and_then(|header| cookie::from_header(header, POLICY_COOKIE))
+            .and_then(|value| cookie::policy_for_path(&value, path));
     }
+    RequestContext {
+        path: path.to_string(),
+        user_region: get("x-user-region").map(str::to_string),
+        user_location,
+        hints,
+    }
+}
+
+/// Snapshot of per-backend runtime health for the core.
+fn backend_runtime(
+    state: &AppState,
+    routing: &RoutingConfig,
+    route_label: &str,
+) -> BTreeMap<String, BackendRuntime> {
+    let s = state.read_guard();
+    let route_total: u64 = s
+        .metrics
+        .route_zone
+        .iter()
+        .filter(|((r, _), _)| r == route_label)
+        .map(|(_, m)| m.requests_total)
+        .sum();
+    routing
+        .backends
+        .iter()
+        .map(|b| {
+            let error_rate = s.zone_stats.get(&b.id).and_then(|stats| {
+                let n = stats.recent_outcomes.len();
+                (n > 0).then(|| stats.recent_error_count as f64 / n as f64)
+            });
+            let share = (route_total > 0).then(|| {
+                let zone = s
+                    .metrics
+                    .route_zone
+                    .get(&(route_label.to_string(), b.id.clone()))
+                    .map(|m| m.requests_total)
+                    .unwrap_or(0);
+                zone as f64 / route_total as f64 * 100.0
+            });
+            (
+                b.id.clone(),
+                BackendRuntime {
+                    latency_ms: None,
+                    error_rate,
+                    in_flight: s.zone_in_flight.get(&b.id).map(|v| *v as u64),
+                    request_share_percent: share,
+                    healthy: None,
+                },
+            )
+        })
+        .collect()
+}
+
+/// plan → fetch carbon only for the regions the core asks for → decide.
+async fn run_decision<F, Fut>(
+    routing: &RoutingConfig,
+    request: RequestContext,
+    runtime: BTreeMap<String, BackendRuntime>,
+    previous: Option<PreviousDecision>,
+    now: Timestamp,
+    max_age_seconds: u64,
+    fetch_signals: F,
+) -> DecisionOutput
+where
+    F: FnOnce(Vec<String>) -> Fut,
+    Fut: Future<Output = Vec<CarbonSignal>>,
+{
+    let plan = rilot_core::plan(routing, &request, &runtime);
+    let signals = if plan.carbon_regions.is_empty() {
+        Vec::new()
+    } else {
+        fetch_signals(plan.carbon_regions).await
+    };
+    rilot_core::decide(
+        routing,
+        &DecisionContext {
+            request,
+            now,
+            carbon: CarbonInput {
+                max_age_seconds,
+                signals,
+            },
+            runtime,
+            previous,
+        },
+    )
 }
 
 async fn handle_request(
     mut req: Request<Body>,
     config: Arc<config::Config>,
     state: AppState,
-    static_state: StaticState,
+    carbon: Arc<CarbonService>,
 ) -> Result<Response<Body>, Infallible> {
     let path = req.uri().path().to_string();
     let method = req.method().clone();
@@ -299,17 +357,16 @@ async fn handle_request(
         return render_metrics(state);
     }
 
-    let matched_proxy = config
-        .proxies
-        .iter()
-        .find(|p| route_matches(&p.rule, &path));
+    if path == CARBON_ENDPOINT {
+        return render_carbon(&config, &carbon, req.uri().query()).await;
+    }
 
-    let proxy_config = match matched_proxy {
-        Some(p) => p,
-        None => {
-            return simple_response(StatusCode::NOT_FOUND, "Not Found: No matching proxy rule.")
-        }
-    };
+    let rule_index = config.routing.match_rule(&path).map(|(i, _)| i);
+    if config.require_rule_match && rule_index.is_none() {
+        return simple_response(StatusCode::NOT_FOUND, "Not Found: No matching proxy rule.");
+    }
+    let extras = config.extras_for(rule_index);
+    let route_label = extras.label.clone();
 
     let headers_map = collect_headers(&req);
     let body_bytes = match hyper::body::to_bytes(req.body_mut()).await {
@@ -324,118 +381,75 @@ async fn handle_request(
     };
     let body_str = String::from_utf8_lossy(&body_bytes).to_string();
 
-    let classified = rilot_core::classify_route(
-        &rilot_core::RoutePolicy {
-            route_class: proxy_config.policy.route_class.clone(),
-            carbon_cursor_enabled: proxy_config.policy.carbon_cursor_enabled,
-            forecasting_enabled: proxy_config.policy.forecasting_enabled,
-            time_shift_enabled: proxy_config.policy.time_shift_enabled,
-            plugin_enabled: proxy_config.policy.plugin_enabled,
+    let request_ctx = request_context(&path, &headers_map);
+    let runtime = backend_runtime(&state, &config.routing, &route_label);
+    let previous = state
+        .read_guard()
+        .last_decision_by_route
+        .get(&route_label)
+        .cloned();
+    let decision = run_decision(
+        &config.routing,
+        request_ctx,
+        runtime,
+        previous,
+        now_timestamp(),
+        carbon.policy().max_age_seconds(),
+        |regions| {
+            let carbon = carbon.clone();
+            async move { carbon.get_signals(&regions, now_timestamp()).await }
         },
-        &headers_map,
-    );
-    let decision = choose_zone(
-        proxy_config,
-        &classified,
-        &headers_map,
-        &config.carbon,
-        &state,
-        &static_state,
-    );
-    let mut target_uri_str = decision
-        .as_ref()
-        .map(|d| d.zone.app_uri.clone())
-        .unwrap_or_else(|| proxy_config.app_uri.clone());
+    )
+    .await;
+    if let Some(next) = &decision.next_state {
+        state
+            .write_guard()
+            .last_decision_by_route
+            .insert(route_label.clone(), next.clone());
+    }
+
+    let Some(selected) = decision.selected().cloned() else {
+        log_decision(
+            &state,
+            &config.metrics,
+            &route_label,
+            &decision,
+            method.as_str(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            0.0,
+            0.0,
+            true,
+            None,
+        );
+        return simple_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            format!("No eligible backend: {}", decision.reason.message),
+        );
+    };
+    let mut target_uri_str = selected.url.clone().unwrap_or_default();
+    let selected_zone_name = selected.backend_id.clone();
+    let route_class = decision.effective.advanced.route_class;
     let mut plugin_energy_joules_override: Option<f64> = None;
     let mut plugin_carbon_intensity_override: Option<f64> = None;
     let mut plugin_energy_source: Option<String> = None;
-    let selected_zone_name = decision
-        .as_ref()
-        .map(|d| d.zone.name.clone())
-        .unwrap_or_else(|| "default".to_string());
     let expose_research_headers = *EXPOSE_RESEARCH_HEADERS;
-    let (
-        carbon_cache_ttl_left_secs,
-        selected_carbon,
-        zone_carbon_snapshot,
-        eligible_zone_carbon_snapshot,
-        zone_filter_reasons,
-        selected_carbon_saved,
-        selected_carbon_saved_percent,
-        selected_reason,
-    ) = if expose_research_headers {
-        let ttl_left = if config.carbon.provider == "electricitymap-local"
-            && config.carbon.electricitymap_local_live_reload
-        {
-            Some(0)
-        } else {
-            cache_ttl_left_secs(&state, &selected_zone_name)
-        };
-        let carbon = decision.as_ref().and_then(|d| d.carbon_g_per_kwh);
-        let zone_carbon_snapshot = decision
-            .as_ref()
-            .map(|d| d.zone_carbon_intensity_g_per_kwh.clone())
-            .unwrap_or_default();
-        let eligible_zone_carbon_snapshot = decision
-            .as_ref()
-            .map(|d| d.eligible_zone_carbon_intensity_g_per_kwh.clone())
-            .unwrap_or_default();
-        let zone_filter_reasons = decision
-            .as_ref()
-            .map(|d| d.zone_filter_reasons.clone())
-            .unwrap_or_default();
-        let carbon_saved = decision
-            .as_ref()
-            .map(|d| d.carbon_saved_vs_worst_g_per_kwh)
-            .unwrap_or(0.0);
-        let carbon_saved_percent = decision
-            .as_ref()
-            .map(|d| d.carbon_saved_vs_worst_percent)
-            .unwrap_or(0.0);
-        let reason = decision
-            .as_ref()
-            .and_then(|d| d.filtered_out_reason.clone())
-            .unwrap_or_else(|| {
-                if classified.carbon_cursor_enabled {
-                    "score-win".to_string()
-                } else {
-                    "fallback-lowest-latency".to_string()
-                }
-            });
-        (
-            ttl_left,
-            carbon,
-            zone_carbon_snapshot,
-            eligible_zone_carbon_snapshot,
-            zone_filter_reasons,
-            carbon_saved,
-            carbon_saved_percent,
-            reason,
-        )
+    let research_headers = if expose_research_headers {
+        research_header_values(&decision, &selected, &carbon)
     } else {
-        (
-            None,
-            None,
-            String::new(),
-            String::new(),
-            String::new(),
-            0.0,
-            0.0,
-            String::new(),
-        )
+        Vec::new()
     };
 
-    if let Some(d) = &decision {
-        if d.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
-            && classified.time_shift_enabled
-            && proxy_config.policy.max_defer_seconds > 0
-        {
-            tokio::time::sleep(Duration::from_secs(proxy_config.policy.max_defer_seconds)).await;
-        }
+    if decision.defer_seconds > 0 {
+        tokio::time::sleep(Duration::from_secs(decision.defer_seconds)).await;
     }
 
-    if classified.plugin_enabled && classified.route_class != "strict-local" {
-        if let Some(wasm_file) = &proxy_config.override_file {
+    let plugin_enabled = match headers_map.get("x-rilot-plugin").map(|v| v.trim()) {
+        Some("1" | "true" | "on" | "yes") => true,
+        Some("0" | "false" | "off" | "no") => false,
+        _ => extras.plugin_enabled,
+    };
+    if plugin_enabled && route_class != RouteClass::StrictLocal {
+        if let Some(wasm_file) = &extras.override_file {
             let wasm_input = WasmInput {
                 method: method.to_string(),
                 path: path.clone(),
@@ -454,7 +468,7 @@ async fn handle_request(
             };
 
             let wasm_result = tokio::time::timeout(
-                Duration::from_millis(proxy_config.policy.plugin_timeout_ms),
+                Duration::from_millis(extras.plugin_timeout_ms),
                 wasm_engine::run_modify_request(wasm_file, &input_json),
             )
             .await;
@@ -499,28 +513,23 @@ async fn handle_request(
                 Err(_) => {
                     eprintln!(
                         "Wasm plugin timed out for route {} after {}ms (component: {})",
-                        proxy_config.rule.path, proxy_config.policy.plugin_timeout_ms, wasm_file
+                        route_label, extras.plugin_timeout_ms, wasm_file
                     );
                 }
             }
         }
     }
 
-    let final_path_and_query = match proxy_config.rewrite.as_str() {
-        "strip" => req
-            .uri()
-            .path_and_query()
-            .map(|pq| {
-                pq.as_str()
-                    .strip_prefix(&proxy_config.rule.path)
-                    .unwrap_or(pq.as_str())
-            })
-            .unwrap_or(""),
-        _ => req
-            .uri()
-            .path_and_query()
-            .map(|pq| pq.as_str())
-            .unwrap_or(""),
+    let path_and_query = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("");
+    let final_path_and_query = match &extras.strip_prefix {
+        Some(prefix) => path_and_query
+            .strip_prefix(prefix.as_str())
+            .unwrap_or(path_and_query),
+        None => path_and_query,
     };
     let final_target_uri_str = format!(
         "{}{}",
@@ -544,14 +553,12 @@ async fn handle_request(
     *req.uri_mut() = final_uri;
     *req.body_mut() = Body::from(body_bytes.clone());
     if *EMULATE_CROSS_REGION_RTT {
-        let user_region = header_or_none(&headers_map, "x-user-region").unwrap_or_default();
-        if let Some(d) = &decision {
-            if !user_region.is_empty() && user_region != d.zone.region {
-                let penalty_ms = proxy_config
-                    .policy
-                    .constraints
+        if let Some(user_region) = &decision.user.region {
+            if !user_region.eq_ignore_ascii_case(&selected.region) {
+                let penalty_ms = decision
+                    .effective
+                    .advanced
                     .cross_region_rtt_penalty_ms
-                    .unwrap_or(CROSS_REGION_RTT_PENALTY_MS)
                     .max(0.0);
                 if penalty_ms > 0.0 {
                     tokio::time::sleep(Duration::from_millis(penalty_ms.round() as u64)).await;
@@ -567,55 +574,9 @@ async fn handle_request(
 
     let (response, status, is_error) = match forward_result {
         Ok(mut res) => {
-            if expose_research_headers {
-                if let Some(ttl_left) = carbon_cache_ttl_left_secs {
-                    if let Ok(value) = HeaderValue::from_str(&ttl_left.to_string()) {
-                        res.headers_mut()
-                            .insert(CACHE_TTL_LEFT_HEADER.clone(), value);
-                    }
-                }
-                if let Ok(value) = HeaderValue::from_str(&selected_zone_name) {
-                    res.headers_mut()
-                        .insert(SELECTED_ZONE_HEADER.clone(), value);
-                }
-                if let Some(v) = selected_carbon {
-                    if let Ok(value) = HeaderValue::from_str(&format!("{:.3}", v)) {
-                        res.headers_mut()
-                            .insert(SELECTED_CARBON_HEADER.clone(), value);
-                    }
-                }
-                if !zone_carbon_snapshot.is_empty() {
-                    if let Ok(value) = HeaderValue::from_str(&zone_carbon_snapshot) {
-                        res.headers_mut()
-                            .insert(ZONE_CARBON_SNAPSHOT_HEADER.clone(), value);
-                    }
-                }
-                if !eligible_zone_carbon_snapshot.is_empty() {
-                    if let Ok(value) = HeaderValue::from_str(&eligible_zone_carbon_snapshot) {
-                        res.headers_mut()
-                            .insert(ELIGIBLE_ZONE_CARBON_SNAPSHOT_HEADER.clone(), value);
-                    }
-                }
-                if !zone_filter_reasons.is_empty() {
-                    if let Ok(value) = HeaderValue::from_str(&zone_filter_reasons) {
-                        res.headers_mut()
-                            .insert(ZONE_FILTER_REASONS_HEADER.clone(), value);
-                    }
-                }
-                if let Ok(value) = HeaderValue::from_str(&selected_reason) {
-                    res.headers_mut()
-                        .insert(DECISION_REASON_HEADER.clone(), value);
-                }
-                if let Ok(value) =
-                    HeaderValue::from_str(&format!("{:.3}", selected_carbon_saved.max(0.0)))
-                {
-                    res.headers_mut().insert(CARBON_SAVED_HEADER.clone(), value);
-                }
-                if let Ok(value) =
-                    HeaderValue::from_str(&format!("{:.2}", selected_carbon_saved_percent.max(0.0)))
-                {
-                    res.headers_mut()
-                        .insert(CARBON_SAVED_PERCENT_HEADER.clone(), value);
+            for (name, value) in &research_headers {
+                if let Ok(value) = HeaderValue::from_str(value) {
+                    res.headers_mut().insert(name.clone(), value);
                 }
             }
             let status = res.status();
@@ -640,14 +601,15 @@ async fn handle_request(
     let estimated_energy_j = plugin_energy_joules_override
         .unwrap_or_else(|| estimate_energy_joules(elapsed_ms, bytes_count));
     let carbon_g_per_kwh = plugin_carbon_intensity_override
-        .or_else(|| decision.as_ref().and_then(|d| d.carbon_g_per_kwh))
+        .or(selected.carbon.used_g_per_kwh)
+        .or(selected.carbon.carbon_g_per_kwh)
         .unwrap_or(0.0);
     let is_carbon_safe =
         carbon_g_per_kwh > 0.0 && carbon_g_per_kwh <= config.carbon.carbon_safe_threshold_g_per_kwh;
     let co2e_g = estimate_co2e_g(estimated_energy_j, carbon_g_per_kwh);
     record_metrics(
         &state,
-        &proxy_config.rule.path,
+        &route_label,
         &selected_zone_name,
         elapsed_ms,
         carbon_g_per_kwh,
@@ -660,8 +622,7 @@ async fn handle_request(
     log_decision(
         &state,
         &config.metrics,
-        proxy_config,
-        &classified,
+        &route_label,
         &decision,
         method.as_str(),
         status,
@@ -674,17 +635,83 @@ async fn handle_request(
     response
 }
 
-fn cache_ttl_left_secs(state: &AppState, zone: &str) -> Option<u64> {
-    let s = state.read_guard();
-    let entry = s.carbon_cache.get(zone)?;
-    let now = Instant::now();
-    Some(
-        entry
-            .expires_at
-            .checked_duration_since(now)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-    )
+fn carbon_label(c: &CandidateEvaluation) -> String {
+    c.carbon
+        .used_g_per_kwh
+        .or(c.carbon.carbon_g_per_kwh)
+        .map(|v| format!("{:.3}", v))
+        .unwrap_or_else(|| "na".to_string())
+}
+
+/// Research headers, in the same formats the research kit already parses.
+fn research_header_values(
+    decision: &DecisionOutput,
+    selected: &CandidateEvaluation,
+    carbon: &CarbonService,
+) -> Vec<(HeaderName, String)> {
+    let mut by_carbon: Vec<&CandidateEvaluation> = decision.candidates.iter().collect();
+    by_carbon.sort_by(|a, b| {
+        let key = |c: &CandidateEvaluation| {
+            c.carbon
+                .used_g_per_kwh
+                .or(c.carbon.carbon_g_per_kwh)
+                .unwrap_or(f64::INFINITY)
+        };
+        key(a).total_cmp(&key(b))
+    });
+    let snapshot = |filter: &dyn Fn(&CandidateEvaluation) -> bool| {
+        by_carbon
+            .iter()
+            .filter(|c| filter(c))
+            .map(|c| format!("{}:{}", c.backend_id, carbon_label(c)))
+            .collect::<Vec<_>>()
+            .join(";")
+    };
+
+    let mut out = vec![
+        (SELECTED_ZONE_HEADER.clone(), selected.backend_id.clone()),
+        (ZONE_CARBON_SNAPSHOT_HEADER.clone(), snapshot(&|_| true)),
+        (
+            ELIGIBLE_ZONE_CARBON_SNAPSHOT_HEADER.clone(),
+            snapshot(&|c| c.is_eligible()),
+        ),
+        (
+            ZONE_FILTER_REASONS_HEADER.clone(),
+            by_carbon
+                .iter()
+                .map(|c| format!("{}:{}", c.backend_id, c.primary_reason()))
+                .collect::<Vec<_>>()
+                .join(";"),
+        ),
+        (
+            DECISION_REASON_HEADER.clone(),
+            decision.reason.code.as_str().to_string(),
+        ),
+        (
+            CARBON_SAVED_HEADER.clone(),
+            format!("{:.3}", decision.carbon_saved_vs_worst_g_per_kwh.max(0.0)),
+        ),
+        (
+            CARBON_SAVED_PERCENT_HEADER.clone(),
+            format!("{:.2}", decision.carbon_saved_vs_worst_percent.max(0.0)),
+        ),
+    ];
+    if let Some(v) = selected
+        .carbon
+        .used_g_per_kwh
+        .or(selected.carbon.carbon_g_per_kwh)
+    {
+        out.push((SELECTED_CARBON_HEADER.clone(), format!("{:.3}", v)));
+    }
+    if let Some(age) = selected.carbon.age_seconds {
+        let ttl_left = carbon
+            .policy()
+            .refresh_seconds()
+            .saturating_sub(age.max(0) as u64);
+        out.push((CACHE_TTL_LEFT_HEADER.clone(), ttl_left.to_string()));
+    }
+    out.retain(|(_, v)| !v.is_empty());
+    out
 }
 
 fn collect_headers(req: &Request<Body>) -> HashMap<String, String> {
@@ -698,868 +725,6 @@ fn collect_headers(req: &Request<Body>) -> HashMap<String, String> {
         .collect()
 }
 
-fn choose_zone(
-    proxy: &config::ProxyConfig,
-    classified: &rilot_core::RoutePolicy,
-    headers: &HashMap<String, String>,
-    carbon_cfg: &config::CarbonProviderConfig,
-    state: &AppState,
-    static_state: &StaticState,
-) -> Option<ZoneScore> {
-    let zones = static_state
-        .zones_by_route
-        .get(&proxy.rule.path)
-        .cloned()
-        .unwrap_or_else(|| resolve_zones(proxy));
-    if zones.is_empty() {
-        return None;
-    }
-
-    let user_region = header_or_none(headers, "x-user-region").unwrap_or_default();
-    let cross_region_penalty_ms = proxy
-        .policy
-        .constraints
-        .cross_region_rtt_penalty_ms
-        .unwrap_or(CROSS_REGION_RTT_PENALTY_MS);
-    let preselected = preselect_candidates(&zones, &proxy.policy.constraints, &user_region);
-    let candidates = if classified.route_class == "strict-local" && !user_region.is_empty() {
-        let local_only: Vec<ZoneCandidate> = preselected
-            .iter()
-            .filter(|z| z.region == user_region)
-            .cloned()
-            .collect();
-        if local_only.is_empty() {
-            preselected
-        } else {
-            local_only
-        }
-    } else {
-        preselected
-    };
-    let best_latency = candidates
-        .iter()
-        .map(|z| estimate_latency_ms(&user_region, z, cross_region_penalty_ms))
-        .fold(f64::INFINITY, |acc, v| acc.min(v))
-        .max(0.0);
-
-    let mut scores = Vec::new();
-    let mut max_carbon: f64 = 1.0;
-    let mut max_latency: f64 = 1.0;
-    let mut max_error: f64 = 0.001;
-    let mut max_cost: f64 = 0.001;
-    let mut has_any_carbon = false;
-
-    for zone in candidates {
-        let signal = get_signal_nonblocking(&zone.name, carbon_cfg, state);
-        let latency_ms = estimate_latency_ms(&user_region, &zone, cross_region_penalty_ms);
-        let error_rate = current_error_rate(state, &zone.name);
-        let cost = zone.cost_weight;
-        let mut filtered_out_reason = apply_constraints(
-            &proxy.policy.constraints,
-            &zone,
-            latency_ms,
-            error_rate,
-            best_latency,
-            &proxy.rule.path,
-            state,
-        );
-
-        let chosen_carbon = if classified.carbon_cursor_enabled
-            && classified.forecasting_enabled
-            && classified.time_shift_enabled
-            && classified.route_class == "background"
-            && proxy.policy.forecast_window_minutes > 0
-        {
-            if let (Some(now), Some(next)) = (signal.current, signal.forecast_next) {
-                let improvement = if now > 0.0 { (now - next) / now } else { 0.0 };
-                if improvement >= proxy.policy.forecast_min_improvement_ratio {
-                    filtered_out_reason = Some("deferred-for-greener-window".to_string());
-                }
-                Some(next)
-            } else {
-                signal.current
-            }
-        } else {
-            // Keep carbon visibility for observability even when carbon scoring is disabled.
-            signal.current
-        };
-
-        if let Some(c) = chosen_carbon {
-            has_any_carbon = true;
-            max_carbon = max_carbon.max(c);
-        }
-        max_latency = max_latency.max(latency_ms);
-        max_error = max_error.max(error_rate);
-        max_cost = max_cost.max(cost.max(0.001));
-
-        scores.push(ZoneScore {
-            zone,
-            score: 0.0,
-            carbon_g_per_kwh: chosen_carbon,
-            zone_carbon_intensity_g_per_kwh: String::new(),
-            eligible_zone_carbon_intensity_g_per_kwh: String::new(),
-            zone_filter_reasons: String::new(),
-            carbon_saved_vs_worst_g_per_kwh: 0.0,
-            carbon_saved_vs_worst_percent: 0.0,
-            latency_ms,
-            error_rate,
-            cost,
-            filtered_out_reason,
-        });
-    }
-
-    for score in &mut scores {
-        let saved_abs = score
-            .carbon_g_per_kwh
-            .map(|c| (max_carbon - c).max(0.0))
-            .unwrap_or(0.0);
-        score.carbon_saved_vs_worst_g_per_kwh = saved_abs;
-        score.carbon_saved_vs_worst_percent = if max_carbon > 0.0 {
-            (saved_abs / max_carbon) * 100.0
-        } else {
-            0.0
-        };
-    }
-
-    let mut snapshot_scores = scores.clone();
-    snapshot_scores.sort_by(|a, b| {
-        let a_carbon = a.carbon_g_per_kwh.unwrap_or(f64::INFINITY);
-        let b_carbon = b.carbon_g_per_kwh.unwrap_or(f64::INFINITY);
-        a_carbon
-            .total_cmp(&b_carbon)
-            .then_with(|| a.zone.order.cmp(&b.zone.order))
-    });
-    let zone_snapshot = snapshot_scores
-        .iter()
-        .map(|s| {
-            let carbon = s
-                .carbon_g_per_kwh
-                .map(|v| format!("{:.3}", v))
-                .unwrap_or_else(|| "na".to_string());
-            format!("{}:{}", s.zone.name, carbon)
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-    let eligible_zone_snapshot = snapshot_scores
-        .iter()
-        .filter(|s| {
-            s.filtered_out_reason.is_none()
-                || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
-        })
-        .map(|s| {
-            let carbon = s
-                .carbon_g_per_kwh
-                .map(|v| format!("{:.3}", v))
-                .unwrap_or_else(|| "na".to_string());
-            format!("{}:{}", s.zone.name, carbon)
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-    let zone_filter_reasons_snapshot = snapshot_scores
-        .iter()
-        .map(|s| {
-            let reason = s
-                .filtered_out_reason
-                .clone()
-                .unwrap_or_else(|| "eligible".to_string());
-            format!("{}:{}", s.zone.name, reason)
-        })
-        .collect::<Vec<_>>()
-        .join(";");
-    for score in &mut scores {
-        score.zone_carbon_intensity_g_per_kwh = zone_snapshot.clone();
-        score.eligible_zone_carbon_intensity_g_per_kwh = eligible_zone_snapshot.clone();
-        score.zone_filter_reasons = zone_filter_reasons_snapshot.clone();
-    }
-
-    if !classified.carbon_cursor_enabled || !has_any_carbon {
-        return lowest_latency_with_hysteresis(
-            proxy,
-            scores,
-            state,
-            &user_region,
-            &classified.route_class,
-        );
-    }
-
-    // Rare tie case: if all eligible candidates have identical carbon signal,
-    // pick deterministically by config order (first zone wins).
-    let mut carbon_tie_candidates: Vec<ZoneScore> = scores
-        .iter()
-        .cloned()
-        .filter(|s| {
-            s.filtered_out_reason.is_none()
-                || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
-        })
-        .collect();
-    let carbon_values: Vec<f64> = carbon_tie_candidates
-        .iter()
-        .filter_map(|s| s.carbon_g_per_kwh)
-        .collect();
-    if carbon_values.len() >= 2 {
-        let first = carbon_values[0];
-        let is_full_carbon_tie = carbon_values
-            .iter()
-            .all(|v| (v - first).abs() <= f64::EPSILON);
-        if is_full_carbon_tie {
-            carbon_tie_candidates.sort_by_key(|s| s.zone.order);
-            if let Some(mut chosen) = carbon_tie_candidates.first().cloned() {
-                if chosen.filtered_out_reason.is_none() {
-                    chosen.filtered_out_reason = Some("config-order-carbon-tie".to_string());
-                }
-                return Some(apply_hysteresis(
-                    proxy,
-                    chosen,
-                    state,
-                    &user_region,
-                    &classified.route_class,
-                ));
-            }
-        }
-    }
-
-    let mode_weights = rilot_core::effective_weights(
-        proxy.policy.priority_mode.as_str(),
-        proxy
-            .policy
-            .weights
-            .as_ref()
-            .map(|weights| rilot_core::PolicyWeights {
-                w_carbon: weights.w_carbon,
-                w_latency: weights.w_latency,
-                w_errors: weights.w_errors,
-                w_cost: weights.w_cost,
-            }),
-    );
-    for score in &mut scores {
-        let n_carbon = score.carbon_g_per_kwh.unwrap_or(max_carbon) / max_carbon;
-        let n_latency = score.latency_ms / max_latency;
-        let n_errors = score.error_rate / max_error.max(0.001);
-        let n_cost = if max_cost > 0.0 {
-            score.cost / max_cost
-        } else {
-            0.0
-        };
-        score.score = (mode_weights.w_carbon * n_carbon)
-            + (mode_weights.w_latency * n_latency)
-            + (mode_weights.w_errors * n_errors)
-            + (mode_weights.w_cost * n_cost);
-    }
-
-    let all_scores = scores.clone();
-    let mut eligible: Vec<ZoneScore> = scores
-        .iter()
-        .cloned()
-        .filter(|s| {
-            s.filtered_out_reason.is_none()
-                || s.filtered_out_reason.as_deref() == Some("deferred-for-greener-window")
-        })
-        .collect();
-    if eligible.is_empty() && proxy.policy.constraints.max_request_share_percent.is_some() {
-        let mut relaxed = all_scores.clone();
-        for s in &mut relaxed {
-            if s.filtered_out_reason.as_deref() == Some("share-cap") {
-                s.filtered_out_reason = Some("share-cap-relaxed-fallback".to_string());
-            }
-        }
-        eligible = relaxed;
-    }
-    eligible.sort_by(|a, b| {
-        a.score
-            .partial_cmp(&b.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.zone.order.cmp(&b.zone.order))
-    });
-
-    if let Some(best) = eligible.first().cloned() {
-        return Some(apply_hysteresis(
-            proxy,
-            best,
-            state,
-            &user_region,
-            &classified.route_class,
-        ));
-    }
-    if proxy.policy.fail_safe_lowest_latency {
-        return lowest_latency_with_hysteresis(
-            proxy,
-            all_scores,
-            state,
-            &user_region,
-            &classified.route_class,
-        );
-    }
-    None
-}
-
-fn lowest_latency_with_hysteresis(
-    proxy: &config::ProxyConfig,
-    mut candidates: Vec<ZoneScore>,
-    state: &AppState,
-    user_region: &str,
-    route_class: &str,
-) -> Option<ZoneScore> {
-    if candidates.is_empty() {
-        return None;
-    }
-    candidates.sort_by(|a, b| {
-        a.latency_ms
-            .partial_cmp(&b.latency_ms)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| a.zone.order.cmp(&b.zone.order))
-    });
-    let mut best = candidates.remove(0);
-    best.score = 9999.0;
-    best.filtered_out_reason = Some("fallback-lowest-latency".to_string());
-    Some(apply_hysteresis(
-        proxy,
-        best,
-        state,
-        user_region,
-        route_class,
-    ))
-}
-
-fn preselect_candidates(
-    zones: &[ZoneCandidate],
-    constraints: &config::PolicyConstraints,
-    user_region: &str,
-) -> Vec<ZoneCandidate> {
-    let mut filtered: Vec<ZoneCandidate> = zones
-        .iter()
-        .filter(|z| {
-            if constraints.zone_allowlist.is_empty() {
-                return true;
-            }
-            if constraints.zone_allowlist.contains(&z.name) {
-                return true;
-            }
-            if !user_region.is_empty() && constraints.zone_allowlist.contains(&z.region) {
-                return true;
-            }
-            constraints
-                .zone_allowlist
-                .iter()
-                .filter_map(|entry| entry.strip_prefix("tag:"))
-                .any(|tag| z.tags.iter().any(|t| t == tag))
-        })
-        .cloned()
-        .collect();
-    if filtered.is_empty() {
-        filtered = zones.to_vec();
-    }
-
-    filtered.sort_by(|a, b| {
-        let ak = if !user_region.is_empty() && a.region == user_region {
-            0
-        } else {
-            1
-        };
-        let bk = if !user_region.is_empty() && b.region == user_region {
-            0
-        } else {
-            1
-        };
-        ak.cmp(&bk).then_with(|| {
-            a.base_rtt_ms
-                .partial_cmp(&b.base_rtt_ms)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-    });
-    filtered
-        .into_iter()
-        .take(constraints.max_candidates.max(1))
-        .collect()
-}
-
-fn apply_constraints(
-    constraints: &config::PolicyConstraints,
-    zone: &ZoneCandidate,
-    latency_ms: f64,
-    error_rate: f64,
-    best_latency_ms: f64,
-    route: &str,
-    state: &AppState,
-) -> Option<String> {
-    if let Some(max_added) = constraints.max_added_latency_ms {
-        if latency_ms > (best_latency_ms + max_added) {
-            return Some(format!("added-latency>{}", max_added));
-        }
-    }
-    if let Some(latency_budget) = constraints.p95_latency_budget_ms {
-        if latency_ms > latency_budget {
-            return Some(format!("latency>{}", latency_budget));
-        }
-    }
-    if let Some(max_error) = constraints.max_error_rate {
-        if error_rate > max_error {
-            return Some(format!("error-rate>{}", max_error));
-        }
-    }
-    if let Some(limit) = zone.max_in_flight {
-        let in_flight = current_in_flight(state, &zone.name);
-        if in_flight >= limit {
-            return Some(format!("capacity>{}", limit));
-        }
-    }
-    if let Some(share_cap_percent) = constraints.max_request_share_percent {
-        let cap = share_cap_percent.clamp(0.0, 100.0);
-        if cap >= 100.0 {
-            return None;
-        }
-        let current_share = current_route_zone_share_percent(state, route, &zone.name);
-        if current_share >= cap {
-            return Some("share-cap".to_string());
-        }
-    }
-    None
-}
-
-fn current_route_zone_share_percent(state: &AppState, route: &str, zone: &str) -> f64 {
-    let s = state.read_guard();
-    let total_requests: u64 = s
-        .metrics
-        .route_zone
-        .iter()
-        .filter_map(|((r, _), m)| {
-            if r == route {
-                Some(m.requests_total)
-            } else {
-                None
-            }
-        })
-        .sum();
-    if total_requests == 0 {
-        return 0.0;
-    }
-    let zone_requests = s
-        .metrics
-        .route_zone
-        .get(&(route.to_string(), zone.to_string()))
-        .map(|m| m.requests_total)
-        .unwrap_or(0);
-    (zone_requests as f64 / total_requests as f64) * 100.0
-}
-
-fn apply_hysteresis(
-    proxy: &config::ProxyConfig,
-    candidate: ZoneScore,
-    state: &AppState,
-    user_region: &str,
-    route_class: &str,
-) -> ZoneScore {
-    let route_key = proxy.rule.path.clone();
-    let resolved_zones = resolve_zones(proxy);
-    let mut s = state.write_guard();
-    if let Some(last) = s.last_decision_by_route.get(&route_key).cloned() {
-        let interval = last.at.elapsed().as_secs();
-        let score_gain = last.score - candidate.score;
-        if interval < proxy.policy.min_switch_interval_secs
-            && score_gain < proxy.policy.hysteresis_delta
-            && last.zone != candidate.zone.name
-        {
-            if let Some(existing) = resolved_zones.into_iter().find(|z| z.name == last.zone) {
-                if route_class == "strict-local"
-                    && !user_region.is_empty()
-                    && existing.region != user_region
-                {
-                    s.last_decision_by_route.insert(
-                        route_key,
-                        LastDecision {
-                            zone: candidate.zone.name.clone(),
-                            score: candidate.score,
-                            at: Instant::now(),
-                        },
-                    );
-                    return candidate;
-                }
-                return ZoneScore {
-                    zone: existing,
-                    score: last.score,
-                    carbon_g_per_kwh: candidate.carbon_g_per_kwh,
-                    zone_carbon_intensity_g_per_kwh: candidate.zone_carbon_intensity_g_per_kwh,
-                    eligible_zone_carbon_intensity_g_per_kwh: candidate
-                        .eligible_zone_carbon_intensity_g_per_kwh,
-                    zone_filter_reasons: candidate.zone_filter_reasons,
-                    carbon_saved_vs_worst_g_per_kwh: candidate.carbon_saved_vs_worst_g_per_kwh,
-                    carbon_saved_vs_worst_percent: candidate.carbon_saved_vs_worst_percent,
-                    latency_ms: candidate.latency_ms,
-                    error_rate: candidate.error_rate,
-                    cost: candidate.cost,
-                    filtered_out_reason: Some("hysteresis-sticky-zone".to_string()),
-                };
-            }
-        }
-    }
-    s.last_decision_by_route.insert(
-        route_key,
-        LastDecision {
-            zone: candidate.zone.name.clone(),
-            score: candidate.score,
-            at: Instant::now(),
-        },
-    );
-    candidate
-}
-
-fn resolve_zones(proxy: &config::ProxyConfig) -> Vec<ZoneCandidate> {
-    if !proxy.zones.is_empty() {
-        return proxy
-            .zones
-            .iter()
-            .enumerate()
-            .map(|(idx, z)| ZoneCandidate {
-                name: z.name.clone(),
-                app_uri: z.app_uri.clone(),
-                region: z.region.clone().unwrap_or_else(|| z.name.clone()),
-                order: idx,
-                base_rtt_ms: z.base_rtt_ms.unwrap_or(35.0),
-                cost_weight: z.cost_weight.unwrap_or(0.0),
-                max_in_flight: z.max_in_flight,
-                tags: z.tags.clone(),
-            })
-            .collect();
-    }
-    vec![ZoneCandidate {
-        name: proxy.app_name.clone(),
-        app_uri: proxy.app_uri.clone(),
-        region: proxy.app_name.clone(),
-        order: 0,
-        base_rtt_ms: 20.0,
-        cost_weight: 0.0,
-        max_in_flight: None,
-        tags: Vec::new(),
-    }]
-}
-
-fn estimate_latency_ms(
-    user_region: &str,
-    zone: &ZoneCandidate,
-    cross_region_penalty_ms: f64,
-) -> f64 {
-    if user_region.is_empty() || user_region == zone.region {
-        zone.base_rtt_ms
-    } else {
-        zone.base_rtt_ms + cross_region_penalty_ms
-    }
-}
-
-fn get_signal_nonblocking(
-    zone: &str,
-    cfg: &config::CarbonProviderConfig,
-    state: &AppState,
-) -> CarbonSignal {
-    if cfg.provider == "electricitymap-local" && cfg.electricitymap_local_live_reload {
-        let (current, forecast_next) = fetch_electricitymap_local_signal(zone, cfg);
-        return CarbonSignal {
-            current,
-            forecast_next,
-        };
-    }
-
-    let now = Instant::now();
-    let cached = {
-        let s = state.read_guard();
-        s.carbon_cache.get(zone).cloned()
-    };
-
-    if let Some(entry) = cached {
-        if now <= entry.expires_at {
-            return CarbonSignal {
-                current: entry.current,
-                forecast_next: entry.forecast_next,
-            };
-        }
-        trigger_refresh(zone.to_string(), cfg.clone(), state.clone());
-        return CarbonSignal {
-            current: entry.current,
-            forecast_next: entry.forecast_next,
-        };
-    }
-
-    trigger_refresh(zone.to_string(), cfg.clone(), state.clone());
-
-    let fallback_current = cfg
-        .zone_current
-        .get(zone)
-        .copied()
-        .or(Some(cfg.default_carbon_intensity));
-    let fallback_next = cfg.zone_forecast_next.get(zone).copied();
-    CarbonSignal {
-        current: fallback_current,
-        forecast_next: fallback_next,
-    }
-}
-
-fn trigger_refresh(zone: String, cfg: config::CarbonProviderConfig, state: AppState) {
-    {
-        let mut s = state.write_guard();
-        if s.refresh_in_flight.contains(&zone) {
-            return;
-        }
-        s.refresh_in_flight.insert(zone.clone());
-    }
-
-    let handle = match tokio::runtime::Handle::try_current() {
-        Ok(handle) => handle,
-        Err(_) => {
-            let mut s = state.write_guard();
-            s.refresh_in_flight.remove(&zone);
-            log::warn!("trigger_refresh called without an active Tokio runtime; skipping background refresh");
-            return;
-        }
-    };
-
-    handle.spawn(async move {
-        let fetch = tokio::time::timeout(
-            Duration::from_millis(cfg.provider_timeout_ms),
-            fetch_provider_signal(&zone, &cfg),
-        )
-        .await;
-
-        let mut s = state.write_guard();
-        s.refresh_in_flight.remove(&zone);
-        match fetch {
-            Ok((current, forecast_next)) => {
-                let ttl_secs = cfg.cache_ttl_seconds.max(1);
-                s.carbon_cache.insert(
-                    zone,
-                    CachedCarbon {
-                        current,
-                        forecast_next,
-                        expires_at: Instant::now() + Duration::from_secs(ttl_secs),
-                    },
-                );
-            }
-            Err(_) => {
-                // Provider timeout: keep old cache if present; otherwise no update.
-                log::warn!("carbon_provider_timeout=true");
-            }
-        }
-    });
-}
-
-async fn fetch_provider_signal(
-    zone: &str,
-    cfg: &config::CarbonProviderConfig,
-) -> (Option<f64>, Option<f64>) {
-    // Keep this async so providers can be swapped without changing the hot path.
-    if cfg.provider == "electricitymap" {
-        return fetch_electricitymap_signal(zone, cfg).await;
-    }
-    if cfg.provider == "electricitymap-local" {
-        return fetch_electricitymap_local_signal(zone, cfg);
-    }
-
-    if cfg.provider == "slow-mock" {
-        tokio::time::sleep(Duration::from_millis(cfg.provider_timeout_ms + 10)).await;
-    }
-    let current_from_cfg = cfg
-        .zone_current
-        .get(zone)
-        .copied()
-        .or(Some(cfg.default_carbon_intensity));
-    let forecast_from_cfg = cfg.zone_forecast_next.get(zone).copied();
-
-    if cfg.provider == "mock" || cfg.provider == "slow-mock" {
-        let epoch_secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs_f64())
-            .unwrap_or(0.0);
-        let wave = (epoch_secs / 300.0).sin() * 0.08;
-        let current = current_from_cfg.map(|v| (v * (1.0 + wave)).max(0.0));
-        let forecast = forecast_from_cfg.or_else(|| current.map(|c| (c * 0.92).max(0.0)));
-        (current, forecast)
-    } else {
-        (current_from_cfg, forecast_from_cfg)
-    }
-}
-
-async fn fetch_electricitymap_signal(
-    zone: &str,
-    cfg: &config::CarbonProviderConfig,
-) -> (Option<f64>, Option<f64>) {
-    let Some(api_key) = cfg.electricitymap_api_key.as_ref() else {
-        log::warn!("electricitymap_api_key_missing=true zone={}", zone);
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    };
-
-    let external_zone = cfg
-        .electricitymap_zone_map
-        .get(zone)
-        .cloned()
-        .unwrap_or_else(|| zone.to_string());
-    let base = cfg.electricitymap_base_url.trim_end_matches('/');
-    let disable_estimations = if cfg.electricitymap_disable_estimations {
-        "true"
-    } else {
-        "false"
-    };
-    // ElectricityMap API:
-    // GET /v3/carbon-intensity/latest?zone=<ZONE>&disableEstimations=<bool>
-    // Expected fields read from response JSON:
-    // - carbonIntensity
-    // - carbonIntensityForecast (optional)
-    let url = format!(
-        "{}/v3/carbon-intensity/latest?zone={}&disableEstimations={}",
-        base, external_zone, disable_estimations
-    );
-
-    let mut headers = HeaderMap::new();
-    if let (Ok(name), Ok(value)) = (
-        ReqHeaderName::from_bytes(cfg.electricitymap_api_token_header.as_bytes()),
-        ReqHeaderValue::from_str(api_key),
-    ) {
-        headers.insert(name, value);
-    }
-
-    let response = HTTP_CLIENT.get(url).headers(headers).send().await;
-    let Ok(resp) = response else {
-        log::warn!("electricitymap_request_failed=true zone={}", zone);
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    };
-    let status = resp.status();
-    if !status.is_success() {
-        log::warn!(
-            "electricitymap_status_failed=true zone={} status={}",
-            zone,
-            status.as_u16()
-        );
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    }
-
-    let parsed = resp.json::<serde_json::Value>().await;
-    let Ok(data) = parsed else {
-        log::warn!("electricitymap_parse_failed=true zone={}", zone);
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    };
-
-    let current = data
-        .get("carbonIntensity")
-        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)));
-    let forecast_next = data
-        .get("carbonIntensityForecast")
-        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
-        .or_else(|| cfg.zone_forecast_next.get(zone).copied());
-
-    (
-        current.or_else(|| {
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity))
-        }),
-        forecast_next,
-    )
-}
-
-fn fetch_electricitymap_local_signal(
-    zone: &str,
-    cfg: &config::CarbonProviderConfig,
-) -> (Option<f64>, Option<f64>) {
-    let Some(path) = cfg.electricitymap_local_fixture.as_ref() else {
-        log::warn!("electricitymap_local_fixture_missing=true zone={}", zone);
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    };
-
-    let parsed = std::fs::read_to_string(Path::new(path))
-        .ok()
-        .and_then(|txt| serde_json::from_str::<serde_json::Value>(&txt).ok());
-    let Some(doc) = parsed else {
-        log::warn!(
-            "electricitymap_local_fixture_parse_failed=true zone={} path={}",
-            zone,
-            path
-        );
-        return (
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity)),
-            cfg.zone_forecast_next.get(zone).copied(),
-        );
-    };
-
-    let external_zone = cfg
-        .electricitymap_zone_map
-        .get(zone)
-        .cloned()
-        .unwrap_or_else(|| zone.to_string());
-
-    // Fixture can be either:
-    // 1) {"carbonIntensity": ..., "carbonIntensityForecast": ...}
-    // 2) {"zones": {"<zone>": {"carbonIntensity": ..., "carbonIntensityForecast": ...}}}
-    let zone_obj = doc
-        .get("zones")
-        .and_then(|zones| zones.get(&external_zone))
-        .unwrap_or(&doc);
-
-    let current = zone_obj
-        .get("carbonIntensity")
-        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)));
-    let forecast = zone_obj
-        .get("carbonIntensityForecast")
-        .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
-        .or_else(|| cfg.zone_forecast_next.get(zone).copied());
-
-    (
-        current.or_else(|| {
-            cfg.zone_current
-                .get(zone)
-                .copied()
-                .or(Some(cfg.default_carbon_intensity))
-        }),
-        forecast,
-    )
-}
-
-fn current_error_rate(state: &AppState, zone: &str) -> f64 {
-    let s = state.read_guard();
-    let Some(stats) = s.zone_stats.get(zone) else {
-        return 0.0;
-    };
-    let sample_size = stats.recent_outcomes.len();
-    if sample_size == 0 {
-        return 0.0;
-    }
-    stats.recent_error_count as f64 / sample_size as f64
-}
-
-fn current_in_flight(state: &AppState, zone: &str) -> usize {
-    let s = state.read_guard();
-    s.zone_in_flight.get(zone).copied().unwrap_or(0)
-}
-
 fn increment_in_flight(state: &AppState, zone: &str, delta: i32) {
     let mut s = state.write_guard();
     let entry = s.zone_in_flight.entry(zone.to_string()).or_insert(0);
@@ -1570,6 +735,7 @@ fn increment_in_flight(state: &AppState, zone: &str, delta: i32) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn record_metrics(
     state: &AppState,
     route: &str,
@@ -1621,6 +787,95 @@ fn record_metrics(
     }
 }
 
+/// Read-only view of the carbon signals this proxy is routing on.
+pub const CARBON_ENDPOINT: &str = "/__rilot/carbon";
+
+/// `GET /__rilot/carbon[?regions=a,b]` — the signals from the shared carbon
+/// layer (cache, then provider), with the age and staleness a caller would
+/// otherwise have to work out. It never exposes the provider's API key.
+async fn render_carbon(
+    config: &config::Config,
+    carbon: &Arc<CarbonService>,
+    query: Option<&str>,
+) -> Result<Response<Body>, Infallible> {
+    let known: Vec<String> = config
+        .routing
+        .backends
+        .iter()
+        .map(|b| b.carbon_key().to_string())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let asked = query
+        .and_then(|q| {
+            q.split('&')
+                .filter_map(|pair| pair.split_once('='))
+                .find(|(k, _)| *k == "regions")
+                .map(|(_, v)| v.to_string())
+        })
+        .map(|value| {
+            value
+                .split(',')
+                .map(|r| r.trim().to_string())
+                .filter(|r| known.contains(r))
+                .collect::<Vec<_>>()
+        });
+
+    if let Some(regions) = &asked {
+        if regions.is_empty() {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": "No known region in ?regions", "known": known }),
+            );
+        }
+    }
+    let regions = asked.unwrap_or(known);
+
+    let now = now_timestamp();
+    let signals = carbon.get_signals(&regions, now).await;
+    let max_age = carbon.policy().max_age_seconds();
+    let described: Vec<_> = signals
+        .iter()
+        .map(|signal| {
+            let age = now.unix_seconds().saturating_sub(signal.observed_at.unix_seconds());
+            let age = age.max(0) as u64;
+            json!({
+                "region": signal.region,
+                "carbon_g_per_kwh": signal.carbon_g_per_kwh,
+                "observed_at": signal.observed_at.to_rfc3339(),
+                "source": signal.source,
+                "age_seconds": age,
+                "stale": age > max_age,
+            })
+        })
+        .collect();
+    let missing: Vec<&String> = regions
+        .iter()
+        .filter(|region| !signals.iter().any(|s| &s.region == *region))
+        .collect();
+
+    json_response(
+        StatusCode::OK,
+        &json!({
+            "max_age_seconds": max_age,
+            "asked_for": regions,
+            "missing": missing,
+            "signals": described,
+        }),
+    )
+}
+
+fn json_response<T: Serialize>(status: StatusCode, body: &T) -> Result<Response<Body>, Infallible> {
+    Ok(Response::builder()
+        .status(status)
+        .header("Content-Type", "application/json; charset=utf-8")
+        // Grid data, not user data: safe for a browser demo to read.
+        .header("Access-Control-Allow-Origin", "*")
+        .body(serde_json::to_string_pretty(body).unwrap_or_default().into())
+        .unwrap())
+}
+
 fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
     let s = state.read_guard();
     let mut out = String::new();
@@ -1635,61 +890,46 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
     out.push_str("# TYPE energy_joules_estimated_total counter\n");
 
     for ((route, zone), m) in &s.metrics.route_zone {
-        out.push_str(&format!(
-            "requests_total{{route=\"{}\",zone=\"{}\"}} {}\n",
+        let labels = format!(
+            "route=\"{}\",zone=\"{}\"",
             escape_label(route),
-            escape_label(zone),
-            m.requests_total
-        ));
-        out.push_str(&format!(
-            "carbon_safe_calls_total{{route=\"{}\",zone=\"{}\"}} {}\n",
-            escape_label(route),
-            escape_label(zone),
-            m.carbon_safe_calls_total
-        ));
+            escape_label(zone)
+        );
         let safe_ratio = if m.requests_total > 0 {
             m.carbon_safe_calls_total as f64 / m.requests_total as f64
         } else {
             0.0
         };
         out.push_str(&format!(
-            "carbon_safe_call_ratio{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
-            escape_label(route),
-            escape_label(zone),
+            "requests_total{{{labels}}} {}\n",
+            m.requests_total
+        ));
+        out.push_str(&format!(
+            "carbon_safe_calls_total{{{labels}}} {}\n",
+            m.carbon_safe_calls_total
+        ));
+        out.push_str(&format!(
+            "carbon_safe_call_ratio{{{labels}}} {:.8}\n",
             safe_ratio
         ));
+        out.push_str(&format!("errors_total{{{labels}}} {}\n", m.errors_total));
         out.push_str(&format!(
-            "errors_total{{route=\"{}\",zone=\"{}\"}} {}\n",
-            escape_label(route),
-            escape_label(zone),
-            m.errors_total
-        ));
-        out.push_str(&format!(
-            "carbon_intensity_exposure_total{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
-            escape_label(route),
-            escape_label(zone),
+            "carbon_intensity_exposure_total{{{labels}}} {:.8}\n",
             m.carbon_intensity_exposure_total_g_per_kwh
         ));
         out.push_str(&format!(
-            "co2e_estimated_total{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
-            escape_label(route),
-            escape_label(zone),
+            "co2e_estimated_total{{{labels}}} {:.8}\n",
             m.co2e_estimated_total_g
         ));
         out.push_str(&format!(
-            "energy_joules_estimated_total{{route=\"{}\",zone=\"{}\"}} {:.8}\n",
-            escape_label(route),
-            escape_label(zone),
+            "energy_joules_estimated_total{{{labels}}} {:.8}\n",
             m.energy_estimated_total_j
         ));
         let bounds = ["25", "50", "100", "250", "500", "1000", "2000"];
         for (i, b) in bounds.iter().enumerate() {
             out.push_str(&format!(
-                "latency_ms_bucket{{route=\"{}\",zone=\"{}\",le=\"{}\"}} {}\n",
-                escape_label(route),
-                escape_label(zone),
-                b,
-                m.latency_buckets[i]
+                "latency_ms_bucket{{{labels},le=\"{}\"}} {}\n",
+                b, m.latency_buckets[i]
             ));
         }
     }
@@ -1709,12 +949,12 @@ fn render_metrics(state: AppState) -> Result<Response<Body>, Infallible> {
         .unwrap())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn log_decision(
     state: &AppState,
     metrics: &config::MetricsConfig,
-    proxy: &config::ProxyConfig,
-    classified: &rilot_core::RoutePolicy,
-    decision: &Option<ZoneScore>,
+    route_label: &str,
+    decision: &DecisionOutput,
     method: &str,
     status: StatusCode,
     latency_ms: f64,
@@ -1728,15 +968,18 @@ fn log_decision(
     }
 
     let entry = json!({
-        "route": proxy.rule.path,
-        "class": classified.route_class,
+        "route": route_label,
+        "matched_rule": decision.effective.matched_rule.as_ref().map(|r| r.path.clone()),
+        "policy": decision.effective.policy.as_str(),
+        "class": decision.effective.advanced.route_class.as_str(),
         "method": method,
         "status": status.as_u16(),
-        "selected_zone": decision.as_ref().map(|d| d.zone.name.clone()).unwrap_or_else(|| "default".to_string()),
-        "score": decision.as_ref().map(|d| d.score),
-        "reason": decision.as_ref().and_then(|d| d.filtered_out_reason.clone()),
-        "carbon_g_per_kwh": decision.as_ref().and_then(|d| d.carbon_g_per_kwh),
-        "latency_ms_estimate": decision.as_ref().map(|d| d.latency_ms),
+        "selected_zone": decision.selected_backend_id.clone().unwrap_or_else(|| "none".to_string()),
+        "score": decision.selected_score,
+        "reason": decision.reason.code.as_str(),
+        "fallback_used": decision.fallback_used,
+        "carbon_g_per_kwh": decision.selected_carbon_g_per_kwh,
+        "latency_ms_estimate": decision.selected_latency_ms,
         "latency_ms_observed": latency_ms,
         "co2e_g": co2e_g,
         "is_error": is_error,
@@ -1756,11 +999,7 @@ fn should_log_decision(state: &AppState, sample_rate: f64) -> bool {
     s.decision_counter = s.decision_counter.saturating_add(1);
     let n = (1.0 / sample_rate).round() as u64;
     let n = n.max(1);
-    s.decision_counter % n == 0
-}
-
-fn header_or_none(headers: &HashMap<String, String>, key: &str) -> Option<String> {
-    headers.get(key).cloned()
+    s.decision_counter.is_multiple_of(n)
 }
 
 fn escape_label(value: &str) -> String {
@@ -1781,103 +1020,15 @@ fn estimate_co2e_g(energy_j: f64, carbon_g_per_kwh: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rilot_core::fixture::Fixture;
     use std::path::PathBuf;
 
-    fn temp_json_path(prefix: &str) -> PathBuf {
-        let nanos = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        std::env::temp_dir().join(format!("{}-{}-{}.json", prefix, std::process::id(), nanos))
-    }
-
-    fn test_proxy() -> config::ProxyConfig {
-        let mut policy = config::RoutePolicy::default();
-        policy.carbon_cursor_enabled = true;
-        policy.route_class = "flexible".to_string();
-        policy.fail_safe_lowest_latency = true;
-
-        config::ProxyConfig {
-            app_name: "service".to_string(),
-            app_uri: "http://127.0.0.1:9999".to_string(),
-            zones: vec![
-                config::ZoneConfig {
-                    name: "zone-a".to_string(),
-                    app_uri: "http://127.0.0.1:5601".to_string(),
-                    region: Some("us-east".to_string()),
-                    base_rtt_ms: Some(20.0),
-                    cost_weight: Some(0.0),
-                    max_in_flight: None,
-                    tags: Vec::new(),
-                },
-                config::ZoneConfig {
-                    name: "zone-b".to_string(),
-                    app_uri: "http://127.0.0.1:5602".to_string(),
-                    region: Some("us-west".to_string()),
-                    base_rtt_ms: Some(10.0),
-                    cost_weight: Some(0.0),
-                    max_in_flight: None,
-                    tags: Vec::new(),
-                },
-            ],
-            override_file: None,
-            rule: config::ProxyRule {
-                path: "/test".to_string(),
-                r#type: "prefix".to_string(),
-            },
-            rewrite: "none".to_string(),
-            policy,
-        }
-    }
-
-    fn classified_route() -> rilot_core::RoutePolicy {
-        rilot_core::RoutePolicy {
-            route_class: "flexible".to_string(),
-            carbon_cursor_enabled: true,
-            forecasting_enabled: false,
-            time_shift_enabled: false,
-            plugin_enabled: false,
-        }
-    }
-
-    fn classified_route_with(
-        route_class: &str,
-        forecasting_enabled: bool,
-        time_shift_enabled: bool,
-    ) -> rilot_core::RoutePolicy {
-        rilot_core::RoutePolicy {
-            route_class: route_class.to_string(),
-            carbon_cursor_enabled: true,
-            forecasting_enabled,
-            time_shift_enabled,
-            plugin_enabled: false,
-        }
-    }
-
-    fn carbon_cfg() -> config::CarbonProviderConfig {
-        let mut cfg = config::CarbonProviderConfig::default();
-        cfg.provider = "electricitymap-local".to_string();
-        cfg.zone_current.insert("zone-a".to_string(), 100.0);
-        cfg.zone_current.insert("zone-b".to_string(), 200.0);
-        cfg
-    }
-
-    #[test]
-    fn route_type_prefix_and_legacy_contain_alias_use_prefix_matching() {
-        let prefix_rule = config::ProxyRule {
-            path: "/checkout".to_string(),
-            r#type: "prefix".to_string(),
-        };
-        let contain_rule = config::ProxyRule {
-            path: "/checkout".to_string(),
-            r#type: "contain".to_string(),
-        };
-
-        assert!(route_matches(&prefix_rule, "/checkout"));
-        assert!(route_matches(&prefix_rule, "/checkout/confirm"));
-        assert!(!route_matches(&prefix_rule, "/api/checkout"));
-        assert!(route_matches(&contain_rule, "/checkout/confirm"));
-        assert!(!route_matches(&contain_rule, "/api/checkout"));
+    fn block_on<F: Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime")
+            .block_on(f)
     }
 
     #[test]
@@ -1901,439 +1052,255 @@ mod tests {
     }
 
     #[test]
-    fn trigger_refresh_without_runtime_clears_inflight_marker() {
-        let state = AppState::new();
-        let cfg = carbon_cfg();
-
-        trigger_refresh("zone-a".to_string(), cfg, state.clone());
-
-        let s = state.read_guard();
-        assert!(!s.refresh_in_flight.contains("zone-a"));
-    }
-
-    fn choose_for_test(
-        proxy: &config::ProxyConfig,
-        classified: &rilot_core::RoutePolicy,
-        headers: &HashMap<String, String>,
-        carbon_cfg: &config::CarbonProviderConfig,
-        state: &AppState,
-    ) -> Option<ZoneScore> {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("tokio runtime");
-        rt.block_on(async {
-            choose_zone(
-                proxy,
-                classified,
-                headers,
-                carbon_cfg,
-                state,
-                &StaticState {
-                    zones_by_route: Arc::new(HashMap::new()),
-                },
-            )
-        })
-    }
-
-    fn zone_score_for(zone: ZoneCandidate, score: f64) -> ZoneScore {
-        ZoneScore {
-            zone,
-            score,
-            carbon_g_per_kwh: Some(100.0),
-            zone_carbon_intensity_g_per_kwh: String::new(),
-            eligible_zone_carbon_intensity_g_per_kwh: String::new(),
-            zone_filter_reasons: String::new(),
-            carbon_saved_vs_worst_g_per_kwh: 0.0,
-            carbon_saved_vs_worst_percent: 0.0,
-            latency_ms: 10.0,
-            error_rate: 0.0,
-            cost: 0.0,
-            filtered_out_reason: None,
-        }
-    }
-
-    #[test]
-    fn fail_safe_selects_lowest_latency_when_no_eligible_candidate() {
-        let mut proxy = test_proxy();
-        proxy.policy.constraints.p95_latency_budget_ms = Some(1.0);
-        let headers = HashMap::new();
-        let cfg = carbon_cfg();
-        let state = AppState::new();
-        let decision = choose_for_test(&proxy, &classified_route(), &headers, &cfg, &state);
-
-        let selected = decision.expect("expected fail-safe decision");
-        assert_eq!(selected.zone.name, "zone-b");
-        assert_eq!(
-            selected.filtered_out_reason.as_deref(),
-            Some("fallback-lowest-latency")
-        );
-    }
-
-    #[test]
-    fn score_tie_break_uses_config_order() {
-        let mut proxy = test_proxy();
-        proxy.policy.weights = Some(config::PolicyWeights {
-            w_carbon: 0.5,
-            w_latency: 0.5,
-            w_errors: 0.0,
-            w_cost: 0.0,
-        });
-        let headers = HashMap::new();
-        let cfg = carbon_cfg();
-        let state = AppState::new();
-        let decision = choose_for_test(&proxy, &classified_route(), &headers, &cfg, &state);
-
-        let selected = decision.expect("expected tie-break decision");
-        assert_eq!(selected.zone.name, "zone-a");
-    }
-
-    #[test]
-    fn strict_local_prefers_zone_in_user_region() {
-        let proxy = test_proxy();
-        let mut headers = HashMap::new();
-        headers.insert("x-user-region".to_string(), "us-east".to_string());
-        let cfg = carbon_cfg();
-        let state = AppState::new();
-
-        let decision = choose_for_test(
-            &proxy,
-            &classified_route_with("strict-local", false, false),
-            &headers,
-            &cfg,
-            &state,
-        );
-
-        let selected = decision.expect("expected strict-local decision");
-        assert_eq!(selected.zone.name, "zone-a");
-    }
-
-    #[test]
-    fn share_cap_relaxes_when_all_candidates_are_filtered() {
-        let mut proxy = test_proxy();
-        proxy.policy.constraints.max_request_share_percent = Some(0.0);
-        let headers = HashMap::new();
-        let cfg = carbon_cfg();
-        let state = AppState::new();
-
-        let decision = choose_for_test(&proxy, &classified_route(), &headers, &cfg, &state);
-
-        let selected = decision.expect("expected relaxed share-cap fallback");
-        assert_eq!(
-            selected.filtered_out_reason.as_deref(),
-            Some("share-cap-relaxed-fallback")
-        );
-    }
-
-    #[test]
-    fn share_cap_100_does_not_filter_candidates() {
-        let proxy = test_proxy();
-        let zone = resolve_zones(&proxy)
-            .into_iter()
-            .find(|z| z.name == "zone-a")
-            .expect("zone-a");
-        let constraints = config::PolicyConstraints {
-            max_request_share_percent: Some(100.0),
-            ..config::PolicyConstraints::default()
-        };
-        let state = AppState::new();
-        {
-            let mut s = state.write_guard();
-            let route_metrics = RouteZoneMetrics {
-                requests_total: 10,
-                ..RouteZoneMetrics::default()
-            };
-            s.metrics
-                .route_zone
-                .insert(("/".to_string(), "zone-a".to_string()), route_metrics);
-        }
-
-        let reason = apply_constraints(&constraints, &zone, 10.0, 0.0, 10.0, "/", &state);
-
-        assert_eq!(reason, None);
-    }
-
-    #[test]
-    fn background_forecast_marks_deferred_for_greener_window() {
-        let proxy = test_proxy();
-        let headers = HashMap::new();
-        let mut cfg = carbon_cfg();
-        cfg.zone_forecast_next.insert("zone-a".to_string(), 70.0);
-        cfg.zone_forecast_next.insert("zone-b".to_string(), 190.0);
-        let state = AppState::new();
-
-        let decision = choose_for_test(
-            &proxy,
-            &classified_route_with("background", true, true),
-            &headers,
-            &cfg,
-            &state,
-        );
-
-        let selected = decision.expect("expected background decision");
-        assert_eq!(selected.zone.name, "zone-a");
-        assert_eq!(
-            selected.filtered_out_reason.as_deref(),
-            Some("deferred-for-greener-window")
-        );
-        assert_eq!(selected.carbon_g_per_kwh, Some(70.0));
-    }
-
-    #[test]
-    fn current_error_rate_uses_recent_window() {
+    fn error_rate_uses_recent_window() {
+        let cfg = config::parse_config(
+            r#"{"backends": [{"id": "zone-a", "region": "us-east-1", "url": "http://a"}]}"#,
+        )
+        .unwrap();
         let state = AppState::new();
         for _ in 0..ERROR_RATE_WINDOW_SIZE {
             record_metrics(&state, "/", "zone-a", 10.0, 100.0, false, 1.0, 1.0, true);
         }
-        assert_eq!(current_error_rate(&state, "zone-a"), 1.0);
+        let rt = backend_runtime(&state, &cfg.routing, "/");
+        assert_eq!(rt["zone-a"].error_rate, Some(1.0));
+        assert_eq!(rt["zone-a"].request_share_percent, Some(100.0));
 
         for _ in 0..ERROR_RATE_WINDOW_SIZE {
             record_metrics(&state, "/", "zone-a", 10.0, 100.0, false, 1.0, 1.0, false);
         }
-
-        assert_eq!(current_error_rate(&state, "zone-a"), 0.0);
+        let rt = backend_runtime(&state, &cfg.routing, "/");
+        assert_eq!(rt["zone-a"].error_rate, Some(0.0));
     }
 
     #[test]
-    fn hysteresis_keeps_previous_zone_when_gain_is_small() {
-        let mut proxy = test_proxy();
-        proxy.policy.min_switch_interval_secs = 300;
-        proxy.policy.hysteresis_delta = 0.2;
-        let state = AppState::new();
-        {
-            let mut s = state.write_guard();
-            s.last_decision_by_route.insert(
-                proxy.rule.path.clone(),
-                LastDecision {
-                    zone: "zone-b".to_string(),
-                    score: 0.40,
-                    at: Instant::now(),
-                },
-            );
-        }
-
-        let zone_a = resolve_zones(&proxy)
-            .into_iter()
-            .find(|z| z.name == "zone-a")
-            .expect("zone-a");
-        let candidate = zone_score_for(zone_a, 0.35);
-        let selected = apply_hysteresis(&proxy, candidate, &state, "", "flexible");
-
-        assert_eq!(selected.zone.name, "zone-b");
+    fn request_context_reads_a_single_location_header() {
+        let ctx = request_context(
+            "/x",
+            &HashMap::from([("x-user-location".to_string(), "51.5,-0.13".to_string())]),
+        );
         assert_eq!(
-            selected.filtered_out_reason.as_deref(),
-            Some("hysteresis-sticky-zone")
+            ctx.user_location,
+            Some(GeoPoint {
+                lat: 51.5,
+                lon: -0.13
+            })
+        );
+        assert_eq!(ctx.user_region, None);
+    }
+
+    #[test]
+    fn request_context_ignores_an_unparseable_location() {
+        let ctx = request_context(
+            "/x",
+            &HashMap::from([("x-user-location".to_string(), "not-a-location".to_string())]),
+        );
+        assert_eq!(ctx.user_location, None);
+    }
+
+    #[test]
+    fn request_context_reads_region_location_and_hints() {
+        let headers = HashMap::from([
+            ("x-user-region".to_string(), "us-east-1".to_string()),
+            ("x-user-lat".to_string(), "40.7".to_string()),
+            ("x-user-lon".to_string(), "-74.0".to_string()),
+            ("x-rilot-class".to_string(), "background".to_string()),
+            ("x-rilot-carbon-cursor".to_string(), "off".to_string()),
+        ]);
+        let ctx = request_context("/x", &headers);
+        assert_eq!(ctx.user_region.as_deref(), Some("us-east-1"));
+        assert_eq!(
+            ctx.user_location,
+            Some(GeoPoint {
+                lat: 40.7,
+                lon: -74.0
+            })
+        );
+        assert_eq!(ctx.hints.route_class, Some(RouteClass::Background));
+        assert_eq!(ctx.hints.carbon_aware, Some(false));
+    }
+
+    #[test]
+    fn request_context_takes_the_policy_from_the_session_cookie() {
+        let headers = HashMap::from([(
+            "cookie".to_string(),
+            "sid=abc; rilot_policy=%2Fproducts%2F*%3Acarbon,%2Fcheckout%2F*%3Alatency".to_string(),
+        )]);
+        assert_eq!(
+            request_context("/products/bottle", &headers).hints.policy,
+            Some(rilot_core::Policy::Carbon)
+        );
+        assert_eq!(
+            request_context("/checkout/pay", &headers).hints.policy,
+            Some(rilot_core::Policy::Latency)
+        );
+        // A path the cookie says nothing about keeps the configured policy.
+        assert_eq!(request_context("/cart", &headers).hints.policy, None);
+    }
+
+    #[test]
+    fn an_explicit_policy_header_beats_the_cookie() {
+        let headers = HashMap::from([
+            ("cookie".to_string(), "rilot_policy=/*:carbon".to_string()),
+            ("x-rilot-policy".to_string(), "latency".to_string()),
+        ]);
+        assert_eq!(
+            request_context("/anything", &headers).hints.policy,
+            Some(rilot_core::Policy::Latency)
         );
     }
 
     #[test]
-    fn hysteresis_updates_last_decision_for_following_attempts() {
-        let mut proxy = test_proxy();
-        proxy.policy.min_switch_interval_secs = 300;
-        proxy.policy.hysteresis_delta = 0.2;
-        let state = AppState::new();
-        {
-            let mut s = state.write_guard();
-            s.last_decision_by_route.insert(
-                proxy.rule.path.clone(),
-                LastDecision {
-                    zone: "zone-b".to_string(),
-                    score: 0.50,
-                    at: Instant::now(),
-                },
-            );
-        }
+    fn a_malformed_cookie_is_ignored_not_an_error() {
+        let headers = HashMap::from([(
+            "cookie".to_string(),
+            "rilot_policy=nonsense; other=1".to_string(),
+        )]);
+        assert_eq!(request_context("/products", &headers).hints.policy, None);
+    }
 
-        let mut zones = resolve_zones(&proxy).into_iter();
-        let zone_a = zones.find(|z| z.name == "zone-a").expect("zone-a");
-        let first_selected = apply_hysteresis(
-            &proxy,
-            zone_score_for(zone_a.clone(), 0.10),
-            &state,
-            "",
-            "flexible",
+    #[test]
+    fn the_policy_hint_overrides_the_matched_rule() {
+        // /checkout/* is a latency rule; a session that asked for carbon gets it.
+        let config: RoutingConfig = serde_json::from_str(
+            r#"{
+                "backends": [{"id": "east", "region": "us-east-1", "url": "http://e"}],
+                "policy": "balanced",
+                "routing_rules": [{"path": "/checkout/*", "policy": "latency"}]
+            }"#,
+        )
+        .unwrap();
+        let mut headers = HashMap::new();
+        headers.insert(
+            "cookie".to_string(),
+            "rilot_policy=/checkout/*:carbon".to_string(),
         );
-        assert_eq!(first_selected.zone.name, "zone-a");
+        let ctx = request_context("/checkout/pay", &headers);
+        let effective = config.resolve_with_hints(&ctx.path, &ctx.hints);
+        assert_eq!(effective.policy, rilot_core::Policy::Carbon);
+        assert_eq!(effective.policy_source, rilot_core::ValueSource::Request);
+    }
 
-        let second_selected = apply_hysteresis(
-            &proxy,
-            zone_score_for(
-                resolve_zones(&proxy)
-                    .into_iter()
-                    .find(|z| z.name == "zone-b")
-                    .expect("zone-b"),
-                0.05,
+    /// The native flow fetches carbon only for the regions `plan` requests.
+    /// It must still reach exactly the decision the core makes when handed
+    /// every signal, for every shared fixture.
+    #[test]
+    fn native_flow_matches_shared_fixtures() {
+        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures/decisions");
+        let mut files: Vec<_> = std::fs::read_dir(&dir)
+            .expect("fixtures dir")
+            .map(|e| e.unwrap().path())
+            .filter(|p| p.extension().is_some_and(|e| e == "json"))
+            .collect();
+        files.sort();
+        assert!(!files.is_empty());
+
+        for path in files {
+            let fixture = Fixture::parse(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let ctx = fixture.input.context.clone();
+            let all_signals = ctx.carbon.signals.clone();
+            let output = block_on(run_decision(
+                &fixture.input.config,
+                ctx.request.clone(),
+                ctx.runtime.clone(),
+                ctx.previous.clone(),
+                ctx.now,
+                ctx.carbon.max_age_seconds,
+                |regions| async move {
+                    all_signals
+                        .into_iter()
+                        .filter(|s| regions.contains(&s.region))
+                        .collect()
+                },
+            ));
+            fixture.check(&output).unwrap_or_else(|e| panic!("{e}"));
+            let direct = rilot_core::decide(&fixture.input.config, &fixture.input.context);
+            assert_eq!(
+                output.selected_backend_id, direct.selected_backend_id,
+                "{}",
+                fixture.name
+            );
+            assert_eq!(output.reason, direct.reason, "{}", fixture.name);
+        }
+    }
+
+    #[test]
+    fn latency_policy_never_calls_the_carbon_service() {
+        let cfg = config::parse_config(
+            r#"{"policy": "latency", "backends": [
+                {"id": "east", "region": "us-east-1", "url": "http://e"},
+                {"id": "west", "region": "us-west-2", "url": "http://w"}]}"#,
+        )
+        .unwrap();
+        let output = block_on(run_decision(
+            &cfg.routing,
+            request_context(
+                "/",
+                &HashMap::from([("x-user-region".into(), "us-west-2".into())]),
             ),
-            &state,
-            "",
-            "flexible",
-        );
-        assert_eq!(second_selected.zone.name, "zone-a");
+            BTreeMap::new(),
+            None,
+            now_timestamp(),
+            300,
+            |_regions| async { panic!("carbon lookup for a latency policy") },
+        ));
+        assert_eq!(output.selected_backend_id.as_deref(), Some("west"));
+    }
+
+    #[test]
+    fn legacy_example_config_routes_through_core() {
+        let raw = std::fs::read_to_string(
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("examples/config/legacy-proxies.json"),
+        )
+        .unwrap();
+        let cfg = config::parse_config(&raw).unwrap();
+        let headers = HashMap::from([("x-user-region".to_string(), "us-east".to_string())]);
+        let signals = |regions: Vec<String>| async move {
+            regions
+                .into_iter()
+                .map(|region| CarbonSignal {
+                    carbon_g_per_kwh: if region == "us-west" { 300.0 } else { 430.0 },
+                    region,
+                    observed_at: now_timestamp(),
+                    forecast_g_per_kwh: None,
+                    source: None,
+                })
+                .collect()
+        };
+
+        let checkout = block_on(run_decision(
+            &cfg.routing,
+            request_context("/checkout/pay", &headers),
+            BTreeMap::new(),
+            None,
+            now_timestamp(),
+            300,
+            signals,
+        ));
         assert_eq!(
-            second_selected.filtered_out_reason.as_deref(),
-            Some("hysteresis-sticky-zone")
+            cfg.extras_for(checkout.effective.matched_rule.as_ref().map(|r| r.index))
+                .label,
+            "/checkout"
         );
-    }
+        assert_eq!(
+            checkout.selected_backend_id.as_deref(),
+            Some("checkout-local")
+        );
+        assert!(!checkout.needs_carbon);
 
-    #[test]
-    fn strict_local_overrides_non_local_sticky_zone() {
-        let mut proxy = test_proxy();
-        proxy.policy.min_switch_interval_secs = 300;
-        proxy.policy.hysteresis_delta = 0.2;
-        let state = AppState::new();
-        {
-            let mut s = state.write_guard();
-            s.last_decision_by_route.insert(
-                proxy.rule.path.clone(),
-                LastDecision {
-                    zone: "zone-b".to_string(),
-                    score: 0.40,
-                    at: Instant::now(),
-                },
-            );
-        }
-
-        let zone_a = resolve_zones(&proxy)
-            .into_iter()
-            .find(|z| z.name == "zone-a")
-            .expect("zone-a");
-        let candidate = zone_score_for(zone_a, 0.35);
-        let selected = apply_hysteresis(&proxy, candidate, &state, "us-east", "strict-local");
-
-        assert_eq!(selected.zone.name, "zone-a");
-        let s = state.read_guard();
-        let last = s
-            .last_decision_by_route
-            .get(&proxy.rule.path)
-            .expect("last decision");
-        assert_eq!(last.zone, "zone-a");
-    }
-
-    #[test]
-    fn preselect_candidates_supports_tag_allowlist() {
-        let mut proxy = test_proxy();
-        proxy.zones[0].tags = vec!["green".to_string()];
-        let zones = resolve_zones(&proxy);
-        let constraints = config::PolicyConstraints {
-            max_candidates: 8,
-            zone_allowlist: vec!["tag:green".to_string()],
-            ..config::PolicyConstraints::default()
-        };
-
-        let filtered = preselect_candidates(&zones, &constraints, "");
-
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].name, "zone-a");
-    }
-
-    #[test]
-    fn preselect_candidates_region_allowlist_without_request_region_falls_back_to_all_zones() {
-        let proxy = test_proxy();
-        let zones = resolve_zones(&proxy);
-        let constraints = config::PolicyConstraints {
-            max_candidates: 8,
-            zone_allowlist: vec!["us-east".to_string()],
-            ..config::PolicyConstraints::default()
-        };
-
-        let filtered = preselect_candidates(&zones, &constraints, "");
-
-        assert_eq!(filtered.len(), 2);
-        assert!(filtered.iter().any(|z| z.name == "zone-a"));
-        assert!(filtered.iter().any(|z| z.name == "zone-b"));
-    }
-
-    #[test]
-    fn electricitymap_local_signal_uses_zone_map_lookup() {
-        let path = temp_json_path("rilot-local-zone-map");
-        std::fs::write(
-            &path,
-            r#"{
-  "zones": {
-    "EM-US-EAST": {
-      "carbonIntensity": 123,
-      "carbonIntensityForecast": 111
-    }
-  }
-}
-"#,
-        )
-        .expect("fixture write");
-
-        let mut cfg = config::CarbonProviderConfig::default();
-        cfg.provider = "electricitymap-local".to_string();
-        cfg.electricitymap_local_fixture = Some(path.to_string_lossy().to_string());
-        cfg.electricitymap_zone_map
-            .insert("zone-a".to_string(), "EM-US-EAST".to_string());
-
-        let signal = fetch_electricitymap_local_signal("zone-a", &cfg);
-
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(signal, (Some(123.0), Some(111.0)));
-    }
-
-    #[test]
-    fn electricitymap_local_live_reload_reads_updated_fixture() {
-        let path = temp_json_path("rilot-live-reload");
-        std::fs::write(
-            &path,
-            r#"{
-  "zones": {
-    "zone-a": {
-      "carbonIntensity": 100,
-      "carbonIntensityForecast": 90
-    }
-  }
-}
-"#,
-        )
-        .expect("fixture write");
-
-        let mut cfg = config::CarbonProviderConfig::default();
-        cfg.provider = "electricitymap-local".to_string();
-        cfg.electricitymap_local_live_reload = true;
-        cfg.electricitymap_local_fixture = Some(path.to_string_lossy().to_string());
-
-        let state = AppState::new();
-        let first = get_signal_nonblocking("zone-a", &cfg, &state);
-
-        std::fs::write(
-            &path,
-            r#"{
-  "zones": {
-    "zone-a": {
-      "carbonIntensity": 250,
-      "carbonIntensityForecast": 240
-    }
-  }
-}
-"#,
-        )
-        .expect("fixture rewrite");
-
-        let second = get_signal_nonblocking("zone-a", &cfg, &state);
-
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(first.current, Some(100.0));
-        assert_eq!(first.forecast_next, Some(90.0));
-        assert_eq!(second.current, Some(250.0));
-        assert_eq!(second.forecast_next, Some(240.0));
-    }
-
-    #[test]
-    fn electricitymap_local_parse_failure_falls_back_to_seeded_values() {
-        let path = temp_json_path("rilot-local-parse-fallback");
-        std::fs::write(&path, "{ not valid json").expect("fixture write");
-
-        let mut cfg = config::CarbonProviderConfig::default();
-        cfg.provider = "electricitymap-local".to_string();
-        cfg.electricitymap_local_fixture = Some(path.to_string_lossy().to_string());
-        cfg.zone_current.insert("zone-a".to_string(), 321.0);
-        cfg.zone_forecast_next.insert("zone-a".to_string(), 222.0);
-
-        let signal = fetch_electricitymap_local_signal("zone-a", &cfg);
-
-        let _ = std::fs::remove_file(&path);
-        assert_eq!(signal, (Some(321.0), Some(222.0)));
+        let search = block_on(run_decision(
+            &cfg.routing,
+            request_context("/search", &headers),
+            BTreeMap::new(),
+            None,
+            now_timestamp(),
+            300,
+            signals,
+        ));
+        assert_eq!(search.effective.matched_rule.unwrap().path, "/search*");
+        assert!(search.selected_backend_id.is_some());
+        assert!(
+            cfg.routing.match_rule("/nothing-here").is_some(),
+            "legacy '/' prefix catches all"
+        );
     }
 }

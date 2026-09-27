@@ -1,0 +1,90 @@
+---
+// Every page of the shop: the storefront on the left, and on the right the
+// routing decision Rilot made for this page's own URL.
+import Nav from '../components/Nav.astro';
+import Seo from '../components/Seo.astro';
+import RilotPanel from '../components/islands/RilotPanel.tsx';
+import ServedBy from '../components/islands/ServedBy.tsx';
+import { href } from '../lib/links';
+import '../styles/global.css';
+
+type Props = {
+  title: string;
+  description: string;
+  keywords: string[];
+  /** The path Rilot routes for this page — the URL without the site base. */
+  path: string;
+  /** Plain-language label for the flow, e.g. "Browse the catalog". */
+  requestLabel: string;
+  /** Rough response size, used for the energy estimate. */
+  kilobytes: number;
+  jsonLd?: Record<string, unknown>[];
+  breadcrumbs?: { name: string; path: string }[];
+};
+
+const {
+  title,
+  description,
+  keywords,
+  path,
+  requestLabel,
+  kilobytes,
+  jsonLd = [],
+  breadcrumbs = []
+} = Astro.props;
+
+const SHARED_KEYWORDS = [
+  'carbon-aware routing',
+  'grid carbon intensity',
+  'green software',
+  'Rilot',
+  'sustainable web demo'
+];
+const allKeywords = [...new Set([...keywords, ...SHARED_KEYWORDS])];
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href={href('/favicon.svg')} type="image/svg+xml" />
+    <link rel="sitemap" href={href('/sitemap-index.xml')} />
+    <meta name="theme-color" content="#197d76" />
+    <Seo
+      title={title}
+      description={description}
+      keywords={allKeywords}
+      path={path}
+      jsonLd={jsonLd}
+      breadcrumbs={breadcrumbs}
+    />
+  </head>
+  <body>
+    <a class="skip-link" href="#shop-content">Skip to the shop</a>
+    <div class="split">
+      <section class="side side-shop">
+        <div class="shop">
+          <Nav path={path} />
+          <main class="shop-body" id="shop-content">
+            <slot />
+          </main>
+          <footer class="shop-foot">
+            <span><code>{path}</code></span>
+            <ServedBy client:idle />
+          </footer>
+        </div>
+      </section>
+
+      <aside class="side side-rilot" aria-label="Live routing decision">
+        <RilotPanel client:only="react" path={path} label={requestLabel} kilobytes={kilobytes} />
+        <noscript>
+          <p class="error">
+            This half of the page runs the Rilot engine in your browser, so it needs JavaScript. The shop itself works
+            without it.
+          </p>
+        </noscript>
+      </aside>
+    </div>
+  </body>
+</html>

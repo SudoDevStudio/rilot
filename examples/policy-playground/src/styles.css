@@ -753,7 +753,8 @@ input[type="range"] {
   box-shadow: var(--selected-glow);
 }
 
-.candidate-card.status-accepted {
+.candidate-card.status-accepted,
+.candidate-card.status-eligible {
   border-top-color: #4f9b95;
 }
 
@@ -897,4 +898,196 @@ input[type="range"] {
     flex-direction: column;
     align-items: start;
   }
+}
+
+.optional-range {
+  display: grid;
+  gap: 8px;
+}
+
+.control-group input:not([type='checkbox']) {
+  width: 100%;
+}
+
+/* --- Normal / Research playground additions --------------------------- */
+
+.toolbar-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.info-block {
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--surface-soft);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  min-width: 0;
+}
+
+.info-block h3 {
+  margin: 0 0 10px;
+}
+
+.info-block summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.kv dt {
+  color: var(--page-muted);
+}
+
+.kv dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.kv small,
+.candidate-table small,
+.sim-table small {
+  color: var(--page-soft);
+  font-weight: 400;
+}
+
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.candidate-table,
+.sim-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.candidate-table th,
+.candidate-table td,
+.sim-table th,
+.sim-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  white-space: nowrap;
+}
+
+.candidate-table th,
+.sim-table th {
+  color: var(--page-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.candidate-table tr.row-selected,
+.candidate-table tr.row-sticky-selected,
+.candidate-table tr.row-fallback {
+  background: var(--accepted-bg);
+}
+
+.candidate-table tr.row-rejected td {
+  color: var(--page-muted);
+}
+
+.sim-table input[type='number'] {
+  width: 92px;
+}
+
+.status-pill-eligible {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.reason-list {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  color: var(--page-muted);
+  font-size: 0.9rem;
+}
+
+.reason-list li + li,
+.trace-list li + li {
+  margin-top: 4px;
+}
+
+.config-details {
+  margin-top: 12px;
+}
+
+.config-details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+.config-editor textarea {
+  width: 100%;
+  min-height: 320px;
+  margin-top: 10px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85rem;
+  line-height: 1.45;
+  color: var(--page-text);
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.editor-error {
+  color: #b95842;
+  font-weight: 600;
+}
+
+.code-block {
+  overflow-x: auto;
+  font-size: 0.8rem;
+  background: var(--input-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.response-banner .winner-pill {
+  display: inline-block;
+  margin-right: 6px;
+}
+
+@media (max-width: 640px) {
+  .kv {
+    grid-template-columns: 1fr;
+  }
+  .kv dd {
+    margin-bottom: 6px;
+  }
+}
+
+/* Let grid panels shrink so wide tables scroll inside .table-scroll instead of widening the page. */
+.layout-grid > .panel {
+  min-width: 0;
+}
+
+.cell-sub {
+  display: block;
 }

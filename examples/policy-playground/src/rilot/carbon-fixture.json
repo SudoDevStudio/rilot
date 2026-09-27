@@ -1,0 +1,26 @@
+{
+  "note": "Illustrative, bundled carbon intensities for the static playground (normalized Rilot format). Not live data.",
+  "signals": [
+    { "region": "us-east-1", "carbon_g_per_kwh": 390, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-east-2", "carbon_g_per_kwh": 470, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-west-1", "carbon_g_per_kwh": 210, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-west-2", "carbon_g_per_kwh": 90, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ca-central-1", "carbon_g_per_kwh": 35, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "sa-east-1", "carbon_g_per_kwh": 100, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-west-1", "carbon_g_per_kwh": 280, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-west-2", "carbon_g_per_kwh": 180, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-west-3", "carbon_g_per_kwh": 45, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-central-1", "carbon_g_per_kwh": 350, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-north-1", "carbon_g_per_kwh": 25, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ap-south-1", "carbon_g_per_kwh": 630, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ap-southeast-1", "carbon_g_per_kwh": 470, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ap-southeast-2", "carbon_g_per_kwh": 560, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ap-northeast-1", "carbon_g_per_kwh": 460, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-central1", "carbon_g_per_kwh": 440, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "europe-west4", "carbon_g_per_kwh": 330, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-east", "carbon_g_per_kwh": 320, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-west", "carbon_g_per_kwh": 150, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "eu-central", "carbon_g_per_kwh": 92, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "ap-south", "carbon_g_per_kwh": 210, "observed_at": "2026-09-18T20:00:00Z" }
+  ]
+}

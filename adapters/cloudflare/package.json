@@ -1,0 +1,24 @@
+{
+  "name": "rilot-cloudflare",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "description": "Cloudflare Worker adapter for Rilot: request metadata, Workers KV carbon cache, and forwarding. Routing decisions come from rilot-core.wasm.",
+  "scripts": {
+    "wasm": "node scripts/build-wasm.mjs",
+    "predev": "npm run wasm",
+    "dev": "wrangler dev",
+    "pretest": "npm run wasm",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "predeploy": "npm run wasm",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
+    "@cloudflare/workers-types": "^4.20250109.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.135.0"
+  }
+}

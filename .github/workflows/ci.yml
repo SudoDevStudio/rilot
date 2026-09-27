@@ -20,6 +20,8 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
@@ -28,4 +30,126 @@ jobs:
         run: cargo build --locked --verbose
 
       - name: Run unit tests
-        run: cargo test --locked --verbose
+        run: cargo test --workspace --locked --verbose
+
+      - name: Build rilot-core for the browser (wasm32-unknown-unknown)
+        run: cargo build -p rilot-wasm --profile wasm --locked --target wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check shared decision fixtures in Wasm
+        run: node scripts/check-wasm-fixtures.mjs
+
+  cloudflare-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: adapters/cloudflare/package-lock.json
+
+      - name: Install dependencies
+        working-directory: adapters/cloudflare
+        run: npm ci --legacy-peer-deps
+
+      - name: Type-check the Worker
+        working-directory: adapters/cloudflare
+        run: npm run typecheck
+
+      - name: Run Worker tests (workerd)
+        working-directory: adapters/cloudflare
+        run: npm test
+
+  carbon-layer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The carbon policy is Rust; the TypeScript service calls it through Wasm.
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: packages/rilot-carbon/package-lock.json
+
+      - name: Install dependencies
+        working-directory: packages/rilot-carbon
+        run: npm ci
+
+      - name: Type-check
+        working-directory: packages/rilot-carbon
+        run: npm run typecheck
+
+      # The same fixtures/carbon/*.json also run in `cargo test -p rilot-carbon`.
+      - name: Carbon conformance (TypeScript)
+        working-directory: packages/rilot-carbon
+        run: npm test
+
+  # The two browser apps run the same engine as everything above, compiled to
+  # Wasm. They are built and tested here so a pull request cannot break them;
+  # deploying them is a separate workflow.
+  browser-apps:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app:
+          - examples/policy-playground
+          - examples/demo-shop
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      - name: Run tests
+        working-directory: ${{ matrix.app }}
+        run: npm test
+
+      # Catches type errors in the Astro pages and the React islands too.
+      - name: Build
+        working-directory: ${{ matrix.app }}
+        run: npm run build

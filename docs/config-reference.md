@@ -1,143 +1,246 @@
 # Config Reference
 
-Unless noted otherwise, omitted fields use the runtime defaults from [`src/config.rs`](../src/config.rs).
+Rilot accepts two config formats. Both are compiled into the same `rilot-core` routing config and run through the same decision engine.
 
-## Important defaults
+- **Simple config** (recommended): `backends`, `policy`, `radius_km`, `fallback`, `routing_rules`.
+- **Legacy `proxies` config**: still loaded, and translated automatically (see the end of this page).
 
-These are the defaults most users are likely to rely on implicitly:
+A document containing a top-level `proxies` key is treated as legacy.
 
-| Field | Default |
+## Simple config
+
+```json
+{
+  "carbon": {
+    "provider": "electricitymap",
+    "max_age_seconds": 300
+  },
+
+  "backends": [
+    { "id": "east", "region": "us-east-1", "url": "https://east.example.com" },
+    { "id": "west", "region": "us-west-2", "url": "https://west.example.com" }
+  ],
+
+  "policy": "balanced",
+  "radius_km": 2000,
+  "fallback": "nearest",
+
+  "routing_rules": [
+    { "path": "/checkout/*", "policy": "latency", "radius_km": 800 }
+  ]
+}
+```
+
+A request to `/checkout/pay` resolves to:
+
+```text
+Matched rule:  /checkout/*
+policy   = latency   (rule)
+radius   = 800 km    (rule)
+fallback = nearest   (inherited from root)
+backends = east, west (inherited from root)
+```
+
+### Root fields
+
+| Field | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `backends` | array | required | Candidate backends (at least one). |
+| `policy` | `latency` \| `balanced` \| `carbon` | `balanced` | Routing objective. `latency-first`, `carbon-first`, and `custom` are accepted as aliases. |
+| `radius_km` | number \| omitted | unlimited | Maximum user→backend distance. |
+| `fallback` | `nearest` \| `lowest-latency` \| `none` | `nearest` | What to do when no backend is eligible. |
+| `routing_rules` | array | `[]` | Per-path overrides. |
+| `advanced` | object | `{}` | Research knobs (see below). Normal configs don't need these. |
+
+### `backends[]`
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `id` | yes | Unique id (used in metrics, logs, and rules). |
+| `region` | yes | Canonical region, e.g. `us-east-1`, `europe-west4`, `westeurope`. Carbon signals are requested for this region. |
+| `url` | yes (native) | Upstream base URL. |
+| `location` | no | `{ "lat", "lon" }`, only for regions missing from the built-in catalog. |
+| `rtt_ms`, `cost`, `max_in_flight`, `carbon_region` | no | Advanced: configured RTT, relative cost, in-flight cap, alternative carbon signal key. |
+
+No Electricity Maps zones, coordinates, provider endpoints, or cache settings are needed for catalog regions.
+
+### `routing_rules[]`
+
+| Field | Meaning |
 | --- | --- |
-| `metrics.enabled` | `true` |
-| `metrics.path` | `"/metrics"` |
-| `metrics.decision_log_sample_rate` | `0.01` |
-| `metrics.rollup_interval_secs` | `60` |
-| `carbon.provider` | `"mock"` |
-| `carbon.cache_ttl_seconds` | `60` |
-| `carbon.provider_timeout_ms` | `75` |
-| `carbon.default_carbon_intensity` | `450.0` |
-| `carbon.carbon_safe_threshold_g_per_kwh` | `300.0` |
-| `carbon.electricitymap_base_url` | `"https://api.electricitymap.org"` |
-| `carbon.electricitymap_api_token_header` | `"auth-token"` |
-| `rule.type` | `"prefix"` |
-| `rewrite` | `"none"` |
-| `policy.route_class` | `"flexible"` |
-| `policy.priority_mode` | `"balanced"` |
-| `policy.carbon_cursor_enabled` | `false` |
-| `policy.forecasting_enabled` | `false` |
-| `policy.time_shift_enabled` | `false` |
-| `policy.plugin_enabled` | `true` |
-| `policy.fail_safe_lowest_latency` | `true` |
-| `policy.forecast_window_minutes` | `30` |
-| `policy.forecast_min_improvement_ratio` | `0.10` |
-| `policy.max_defer_seconds` | `0` |
-| `policy.hysteresis_delta` | `0.05` |
-| `policy.min_switch_interval_secs` | `30` |
-| `policy.plugin_timeout_ms` | `800` |
-| `constraints.max_candidates` | `8` |
-| `constraints.cross_region_rtt_penalty_ms` | `40.0` ms when unset |
-| `zones[].base_rtt_ms` | `35.0` |
-| `zones[].region` | falls back to `zones[].name` |
-| `zones[].cost_weight` | `0.0` |
-| `zones[].max_in_flight` | no capacity cap |
-| `zones[].tags` | `[]` |
+| `path` | `/checkout/*` matches `/checkout` and everything below it. `/reports*` is a plain prefix. No `*` means an exact match. |
+| `policy`, `fallback` | Override; omitted → inherited. |
+| `radius_km` | Number overrides, `null` means unlimited, omitted → inherited. |
+| `backends` | Subset of root backend ids; omitted → all root backends. |
+| `advanced` | Field-by-field override of root `advanced`. |
 
-## Top-level
+The most specific rule wins: an exact match beats a wildcard, then the longer prefix wins, then the earlier rule. Paths must be unique. Unmatched requests use the root settings.
+
+### `advanced` (research controls)
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `weights` | policy preset | `{carbon, latency, reliability, cost}`; normalized to sum to 1. Ignored for `latency`. |
+| `carbon_aware` | `true` | `false` forces the `latency` policy. |
+| `route_class` | `flexible` | `flexible`, `strict-local`, `background`. |
+| `max_latency_delta_ms` | none | Reject backends slower than the fastest candidate by more than this. |
+| `hard_max_latency_ms` | none | Reject backends above this latency. |
+| `min_carbon_benefit_g_per_kwh` | none | Non-baseline backends must be at least this much cleaner than the lowest-latency candidate. |
+| `max_error_rate` | none | Health threshold (0..1). |
+| `max_request_share_percent` | none | Capacity cap on a backend's share of route traffic. |
+| `max_candidates` | none | Consider only the N best-placed backends. |
+| `hysteresis_delta` | `0.05` | Minimum score improvement needed to switch backends. |
+| `min_switch_interval_secs` | `30` | Hysteresis window. |
+| `forecasting`, `time_shift` | `false` | Enable forecast-based deferral (background routes). |
+| `forecast_min_improvement_ratio` | `0.10` | Forecast improvement needed to defer. |
+| `max_defer_seconds` | `0` | Maximum deferral. |
+| `cross_region_rtt_penalty_ms` | `40` | Added to `rtt_ms`-based estimates for cross-region traffic. |
+
+See [runtime-behavior.md](runtime-behavior.md) for exactly how each value is used.
+
+## `carbon` (adapter-owned)
+
+| Field | Default | Meaning |
+| --- | --- | --- |
+| `provider` | `mock` | `mock`, `static`, `slow-mock`, `json`, `electricitymap`, `electricitymap-local`. |
+| `max_age_seconds` | `300` | Signals older than this are not used for routing. |
+| `refresh_seconds` | `min(60, max_age_seconds)` | Background refresh interval. Legacy name: `cache_ttl_seconds`. |
+| `provider_timeout_ms` | `75` | Bound on synchronous provider calls. |
+| `json_source` | — | `json` provider: file path or http(s) URL (see below). |
+| `zone_current`, `zone_forecast_next` | `{}` | `mock`/`static` values keyed by region. |
+| `default_carbon_intensity` | none (legacy: `450`) | Mock/seed value for regions without an entry. Simple configs never invent carbon values unless this is set. |
+| `carbon_safe_threshold_g_per_kwh` | `300` | Threshold for the `carbon_safe_calls_total` metric. |
+| `electricitymap_api_key` | — | Prefer the `RILOT_ELECTRICITYMAP_API_KEY` environment variable. |
+| `electricitymap_zone_map` | `{}` | Optional override of the provider's built-in region → zone mapping. |
+| `electricitymap_base_url`, `electricitymap_api_token_header`, `electricitymap_disable_estimations` | | Electricity Maps API details. |
+| `electricitymap_local_fixture`, `electricitymap_local_live_reload` | | Offline Electricity Maps fixture (`electricitymap-local`). |
+
+Providers, caches, and how to add a new source: [carbon-layer.md](carbon-layer.md).
+
+Generic JSON provider format. It is keyed by Rilot region and has no provider-specific ids:
+
+```json
+{
+  "signals": [
+    { "region": "us-east-1", "carbon_g_per_kwh": 245, "observed_at": "2026-09-18T20:00:00Z" },
+    { "region": "us-west-2", "carbon_g_per_kwh": 118, "observed_at": "2026-09-18T20:00:00Z", "forecast_g_per_kwh": 100 }
+  ]
+}
+```
+
+## `metrics`
 
 - `metrics.enabled` (bool): enable `/metrics` endpoint. Default `true`.
 - `metrics.path` (string): metrics HTTP path. Default `"/metrics"`.
 - `metrics.decision_log_sample_rate` (float 0..1): full decision log sampling rate. Default `0.01`.
 - `metrics.rollup_interval_secs` (u64): periodic rollup log interval. Default `60`.
 
-- `carbon.provider` (string): `mock`, `slow-mock`, `electricitymap`, `electricitymap-local`, or custom future provider. Default `"mock"`.
-- `carbon.cache_ttl_seconds` (u64): signal TTL per zone, in seconds (default `60`).
-- `carbon.provider_timeout_ms` (u64): timeout for provider refresh calls. Default `75`.
-- `carbon.default_carbon_intensity` (float): fallback intensity. Default `450.0`.
-- `carbon.carbon_safe_threshold_g_per_kwh` (float): threshold used to count carbon-safe calls. Default `300.0`.
-- `carbon.zone_current` (map zone->float): current intensity seed/fallback. Default `{}`.
-- `carbon.zone_forecast_next` (map zone->float): forecast seed/fallback. Default `{}`.
-
-ElectricityMap fields:
-
-- `carbon.electricitymap_base_url` (string): default `https://api.electricitymap.org`.
-- `carbon.electricitymap_api_key` (string|null): API token for ElectricityMap.
-- `carbon.electricitymap_api_token_header` (string): auth header name, default `auth-token`.
-- `carbon.electricitymap_zone_map` (map route-zone->electricitymap-zone): optional mapping when names differ.
-- `carbon.electricitymap_disable_estimations` (bool): pass through to ElectricityMap latest endpoint query.
-- `carbon.electricitymap_local_fixture` (string|null): path to local JSON fixture for offline testing (`electricitymap-local` mode).
-- `carbon.electricitymap_local_live_reload` (bool): when `true`, local fixture is read every request (no cache). Default `false` uses local TTL cache.
-
-Runtime env toggles (not config-file fields):
+## Runtime environment toggles
 
 - `RILOT_HOST` (string): bind host for the proxy server. Default `127.0.0.1`.
 - `RILOT_PORT` (u16): bind port for the proxy server. Default `8080`.
 - `RILOT_ENV` (string): when set to `production`, Rilot preloads Wasm components into the cache on startup.
-- `RILOT_EXPOSE_RESEARCH_HEADERS` (bool): when `true`, Rilot emits research/debug headers such as selected zone, carbon snapshots, and decision reason.
-- `RILOT_EMULATE_CROSS_REGION_RTT` (bool): when `true`, Rilot adds the configured `cross_region_rtt_penalty_ms` to observed request latency for cross-region selections. Useful for research runs where tail latency must reflect cross-region routing decisions.
+- `RILOT_ELECTRICITYMAP_API_KEY` (string): Electricity Maps API key.
+- `RILOT_EXPOSE_RESEARCH_HEADERS` (bool): emit research/debug headers (selected backend, carbon snapshots, filter and decision reasons).
+- `RILOT_EMULATE_CROSS_REGION_RTT` (bool): add `cross_region_rtt_penalty_ms` to observed latency for cross-region selections.
 
-- `proxies` (array): route definitions.
+## Request headers
 
-## `proxies[]`
-
-- `app_name` (string): logical name.
-- `app_uri` (string): default upstream URI.
-- `override_file` (string|null): Wasm component path.
-- `rewrite` (string): `none` or `strip`. Default `none`.
-- `rule.path` (string): route match path. Must be unique across `proxies[]`.
-- `rule.type` (string): `exact` or `prefix`. Default `prefix`. Legacy `contain` is accepted as a backward-compatible alias for `prefix`.
-- `zones` (array): candidate upstream zones.
-- `policy` (object): Carbon Cursor controls.
-
-## `zones[]`
-
-- `name` (string): unique zone identifier.
-- `region` (string, optional): region label used with `x-user-region`. If omitted, Rilot falls back to `name`.
-- `app_uri` (string): upstream URI for zone.
-- `base_rtt_ms` (float, optional): base latency estimate. If omitted, Rilot falls back to `35.0`.
-- `cost_weight` (float, optional): relative cost weight. If omitted, Rilot falls back to `0.0`.
-- `max_in_flight` (usize, optional): capacity guardrail. If omitted, no in-flight cap is enforced.
-- `tags` (string[]): tag-based filtering. Default `[]`.
-
-## `policy`
-
-### Toggles
-
-- `carbon_cursor_enabled` (bool): default `false`.
-- `forecasting_enabled` (bool): default `false`.
-- `time_shift_enabled` (bool): default `false`.
-- `plugin_enabled` (bool): default `true`.
-
-### Routing behavior
-
-- `route_class` (string): `strict-local`, `flexible`, `background`. Default `flexible`.
-- `priority_mode` (string): `balanced`, `latency-first`, `carbon-first`, or `custom`. Default `balanced`.
-- `weights.w_carbon` / `weights.w_latency` / `weights.w_errors` / `weights.w_cost` (float): optional explicit weights. When provided, these take precedence over any built-in `priority_mode` preset. If a `weights` block is present but a field is omitted, its fallback is `0.5 / 0.35 / 0.15 / 0.0` respectively.
-
-### Constraints
-
-- `constraints.max_candidates` (usize): default `8`.
-- `constraints.zone_allowlist` (string[]): zone names, region names, or `tag:<name>` entries. Default `[]`. Region-name entries are only considered on requests that include `x-user-region`; otherwise preselection falls back to the broader candidate set if no zone/tag entry matches.
-- `constraints.max_added_latency_ms` (float)
-- `constraints.cross_region_rtt_penalty_ms` (float): optional model penalty added when `x-user-region` and zone region differ. Default is `40` ms if unset.
-- `constraints.p95_latency_budget_ms` (float)
-- `constraints.max_error_rate` (float 0..1)
-- `constraints.max_request_share_percent` (float 0..100): soft cap on historical per-route traffic share for a zone (e.g. `20` means no zone should exceed 20%). If all candidates are filtered only by this cap, Rilot relaxes the cap rather than failing the request path.
-
-### Stability / safety
-
-- `forecast_window_minutes` (u32): default `30`.
-- `forecast_min_improvement_ratio` (float): default `0.10`.
-- `max_defer_seconds` (u64): default `0`.
-- `fail_safe_lowest_latency` (bool): default `true`.
-- `hysteresis_delta` (float): default `0.05`.
-- `min_switch_interval_secs` (u64): default `30`.
-- `plugin_timeout_ms` (u64, default `800`)
-
-## Header overrides
-
-- `x-user-region`: caller region context.
-- `x-rilot-class`: request route class override.
-- `x-rilot-carbon-cursor`: `true`/`false`.
+- `x-user-region`: caller's canonical region (for example `us-east-1`); used for radius, strict-local, and latency estimates.
+- `x-user-location`: precise caller location as `<lat>,<lon>` (for example `51.5,-0.13`). Takes precedence over `x-user-region` for distance, and over the CDN's own geolocation on edge adapters. An unparseable value is ignored (treated as "location unknown"), never an error.
+- `x-user-lat`, `x-user-lon`: the same thing as two separate headers.
+- `x-rilot-policy`: policy for this one request (`latency`, `balanced`, `carbon`). It beats the matched rule and the root config, and the decision reports `policy_source: "request"`. An unknown value is ignored.
+- `x-rilot-class`: route class override (`flexible`, `strict-local`, `background`).
+- `x-rilot-carbon-cursor`: `true`/`false` (overrides `advanced.carbon_aware`).
 - `x-rilot-forecasting`: `true`/`false`.
 - `x-rilot-time-shift`: `true`/`false`.
 - `x-rilot-plugin`: `true`/`false`.
+
+## Session policy cookie
+
+A site can let each visitor decide how its own pages are routed and keep that
+choice in a cookie. Both adapters read it and apply it exactly like
+`x-rilot-policy`, so no server-side session store is needed:
+
+```http
+Cookie: rilot_policy=/products/*:carbon,/checkout/*:latency
+```
+
+- One `pattern:policy` pair per route, comma separated; the value may be
+  percent-encoded, as a browser will do with `/` and `*`.
+- Patterns are matched with the **same specificity rules as `routing_rules`**:
+  an exact path beats a wildcard, a longer literal prefix beats a shorter one,
+  ties go to the first entry. The parsing and matching live in
+  `crates/rilot-core/src/cookie.rs`, so every adapter agrees by construction.
+- An explicit `x-rilot-policy` header wins over the cookie.
+- Anything malformed, unknown, or longer than 4 KB is skipped rather than
+  rejected: a cookie is attacker-controlled input and must never break routing.
+- It can only choose between the three policies. It cannot widen a radius,
+  reach a backend a rule excluded, or change any other setting — so a
+  `latency` rule on `/checkout/*` stays as safe as it was.
+
+`examples/demo-shop` writes this cookie from the **Policy** tab of its routing
+panel, which is why a choice made in the demo is a choice a real deployment
+would honour.
+
+## Carbon API
+
+Both adapters expose the signals they are routing on, read-only:
+
+```bash
+curl http://127.0.0.1:8080/__rilot/carbon                     # every backend region
+curl http://127.0.0.1:8080/__rilot/carbon?regions=us-west-2   # just these
+```
+
+```json
+{
+  "max_age_seconds": 300,
+  "asked_for": ["us-east-1", "us-west-2"],
+  "missing": [],
+  "signals": [
+    {
+      "region": "us-east-1",
+      "carbon_g_per_kwh": 420.0,
+      "observed_at": "2026-09-22T02:32:02Z",
+      "source": "mock",
+      "age_seconds": 0,
+      "stale": false
+    }
+  ]
+}
+```
+
+The values come from the shared carbon layer — memory, then the store (Workers
+KV at the edge), then the provider — so calling this endpoint costs the same as
+a routed request, and never exposes the provider's API key. `missing` lists
+regions the provider had no value for. An unknown region in `?regions` is a
+`400` that tells you the known ones. The response carries
+`Access-Control-Allow-Origin: *`, because grid intensity is not user data.
+
+## Legacy `proxies` format
+
+Existing configs such as `examples/config/legacy-proxies.json` and `research-kit/config*.json` keep working. They are translated at load time:
+
+| Legacy | Becomes |
+| --- | --- |
+| `proxies[]` | one `routing_rules[]` entry each; unmatched paths still return `404` |
+| `rule.type: prefix` / `contain` | `path*` (prefix); `exact` stays exact |
+| `zones[]` | root `backends[]` (`name` → `id`, `app_uri` → `url`, `base_rtt_ms` → `rtt_ms`, `cost_weight` → `cost`); carbon keyed by zone name |
+| `constraints.zone_allowlist` | the rule's `backends` subset (names, regions, `tag:` entries) |
+| `priority_mode` | `carbon-first` → `carbon`; `latency-first` → `balanced` with legacy weights `0.15/0.65/0.20`; others → `balanced` |
+| `carbon_cursor_enabled: false` | `advanced.carbon_aware: false` (latency routing) |
+| `fail_safe_lowest_latency` | `fallback: lowest-latency` (or `none`) |
+| `max_added_latency_ms`, `p95_latency_budget_ms` | `max_latency_delta_ms`, `hard_max_latency_ms` |
+| other `policy`/`constraints` fields | the matching `advanced` fields |
+| `override_file`, `plugin_*`, `rewrite` | native per-rule extras (unchanged behavior) |
+
+Metrics keep the legacy `rule.path` as the route label.
+
+Behavior differences from earlier releases, which follow from sharing one engine:
+
+- Rules are chosen by specificity, not by config order.
+- If every candidate has the same carbon value, the winner is chosen by score rather than config order.
+- When every candidate hits `max_request_share_percent`, the configured fallback applies (the cap is no longer silently relaxed).
+- Carbon savings are measured against the dirtiest *eligible* backend.
+- A carbon provider timeout makes the affected backends `carbon-unavailable` instead of scoring seeded defaults.
+- `carbon_cursor_enabled: false` routes report `lowest-latency` instead of `fallback-lowest-latency`.

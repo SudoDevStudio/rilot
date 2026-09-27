@@ -1,5 +1,6 @@
 use std::env;
 use std::sync::Arc;
+mod carbon;
 mod config;
 mod proxy;
 mod wasm_engine;
@@ -14,18 +15,19 @@ async fn main() {
     log::info!("Loading configuration from: {}", config_path);
 
     let cfg = config::load_config(config_path);
-    log::info!("Configuration loaded successfully.");
-
-    if cfg.proxies.is_empty() {
-        log::warn!("No proxy rules defined in the configuration.");
-    }
+    log::info!(
+        "Configuration loaded ({} format): {} backend(s), {} routing rule(s).",
+        if cfg.require_rule_match {
+            "legacy proxies"
+        } else {
+            "simple"
+        },
+        cfg.routing.backends.len(),
+        cfg.routing.routing_rules.len()
+    );
 
     if wasm_engine::is_production_mode() {
-        let override_paths: Vec<String> = cfg
-            .proxies
-            .iter()
-            .filter_map(|p| p.override_file.clone())
-            .collect();
+        let override_paths = cfg.override_files();
         if !override_paths.is_empty() {
             match wasm_engine::preload_components(&override_paths) {
                 Ok(count) => log::info!("Preloaded {} Wasm component(s) into memory.", count),
@@ -40,10 +42,18 @@ async fn main() {
         }
     }
 
-    let config_arc = Arc::new(cfg);
+    let carbon_service = carbon::build_service(&cfg.carbon).unwrap_or_else(|e| {
+        log::error!("Invalid carbon provider configuration: {e:#}");
+        std::process::exit(1);
+    });
+    log::info!(
+        "Carbon provider: {} (max signal age {}s).",
+        carbon_service.provider_name(),
+        carbon_service.policy().max_age_seconds()
+    );
 
     log::info!("Starting proxy server...");
-    proxy::start_proxy(config_arc).await;
+    proxy::start_proxy(Arc::new(cfg), carbon_service).await;
 
     log::info!("Proxy server shut down.");
 }
