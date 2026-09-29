@@ -69,7 +69,21 @@ The site is static. `npm run build` writes `dist/`, and two environment variable
 PUBLIC_SITE=https://example.github.io PUBLIC_BASE_PATH=/rilot/demo/ npm run build
 ```
 
-They drive internal links, canonical URLs, `sitemap-index.xml` and `robots.txt`. GitHub Pages publishes it at `/<repo>/demo/`, next to the policy playground - see [the Pages workflow](../../.github/workflows/policy-playground-pages.yml), which reads both values from the Pages configuration instead of hard-coding them.
+They drive internal links, canonical URLs, `sitemap-index.xml` and `robots.txt`.
+
+**GitHub Pages** publishes it at `/<repo>/demo/`, next to the policy playground - see [the Pages workflow](../../.github/workflows/policy-playground-pages.yml), which reads both values from the Pages configuration instead of hard-coding them.
+
+**Vercel** serves it at the root of its own domain, and `vercel.json` here is all it needs:
+
+```bash
+npm i -g vercel
+cd examples/demo-shop
+vercel deploy --prod
+```
+
+No environment variables are required. The site URL is taken from Vercel's own `VERCEL_PROJECT_PRODUCTION_URL`, so canonicals, the sitemap and `robots.txt` come out right on the first deploy; set `PUBLIC_SITE` only if you serve it from a domain Vercel does not know about.
+
+One thing to know: the build compiles `rilot-core` to WebAssembly, which needs Rust. `vercel.json` therefore installs a minimal toolchain in `installCommand` before `npm ci`, which adds a minute or so to a cold build. If you would rather not build Rust on Vercel, build the site in CI and deploy the output with `vercel deploy --prebuilt`; `scripts/build-wasm.mjs` reuses an existing `src/rilot/generated/rilot_core.wasm` when cargo is unavailable.
 
 Every page carries its own title, description, keywords, canonical link, Open Graph and Twitter cards, and JSON-LD. The structured data describes *the demo and Rilot* (`WebSite`, `SoftwareApplication`, `BreadcrumbList`) - deliberately not `Product`/`Offer`, because the shop is fictional and that markup would be a claim to sell something.
 

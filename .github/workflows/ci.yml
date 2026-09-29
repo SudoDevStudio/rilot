@@ -38,10 +38,45 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Check shared decision fixtures in Wasm
         run: node scripts/check-wasm-fixtures.mjs
+
+  # Style and lint, kept separate so a formatting nit never hides a real failure.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-wasip1
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      # The workspace is warning-free today; -D warnings keeps it that way.
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # examples/wasm-plugin is its own workspace, so the lines above skip it.
+      - name: Build the example Wasm plugin
+        run: cargo build --release --target wasm32-wasip1
+        working-directory: examples/wasm-plugin
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      # -x follows `source`; warnings and above fail, style notes do not.
+      - name: shellcheck
+        run: shellcheck -x -S warning run-it/*.sh examples/node-apps/*.sh research-kit/scripts/*.sh
 
   cloudflare-adapter:
     runs-on: ubuntu-latest
@@ -60,13 +95,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: adapters/cloudflare/package-lock.json
 
       - name: Install dependencies
         working-directory: adapters/cloudflare
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Type-check the Worker
         working-directory: adapters/cloudflare
@@ -74,6 +109,44 @@ jobs:
 
       - name: Run Worker tests (workerd)
         working-directory: adapters/cloudflare
+        run: npm test
+
+  # The HTTP layer both JavaScript adapters run on.
+  http-layer:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # The tests decide with the real engine, so it has to exist first.
+      - name: Build rilot-core for WebAssembly
+        run: cargo build -p rilot-wasm --profile wasm --locked --target wasm32-unknown-unknown
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: packages/rilot-http/package-lock.json
+
+      - name: Install dependencies
+        working-directory: packages/rilot-http
+        run: npm ci
+
+      - name: Type-check
+        working-directory: packages/rilot-http
+        run: npm run typecheck
+
+      - name: Run tests
+        working-directory: packages/rilot-http
         run: npm test
 
   carbon-layer:
@@ -94,7 +167,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: packages/rilot-carbon/package-lock.json
 
@@ -109,6 +182,41 @@ jobs:
       # The same fixtures/carbon/*.json also run in `cargo test -p rilot-carbon`.
       - name: Carbon conformance (TypeScript)
         working-directory: packages/rilot-carbon
+        run: npm test
+
+  # The Vercel adapter is a plain `(Request) => Response`, so its tests run in
+  # Node without a platform emulator.
+  vercel-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: adapters/vercel/package-lock.json
+
+      - name: Install dependencies
+        working-directory: adapters/vercel
+        run: npm ci
+
+      - name: Type-check the function
+        working-directory: adapters/vercel
+        run: npm run typecheck
+
+      - name: Run adapter tests
+        working-directory: adapters/vercel
         run: npm test
 
   # The two browser apps run the same engine as everything above, compiled to
@@ -137,7 +245,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
 

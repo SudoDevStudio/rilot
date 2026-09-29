@@ -24,7 +24,7 @@ No routing logic lives in this adapter.
 ```bash
 rustup target add wasm32-unknown-unknown   # the Worker bundles rilot-core.wasm
 cd adapters/cloudflare
-npm install                                # add --legacy-peer-deps on npm 10.9.x
+npm install                                # needs Node 22+: wrangler requires it
 ```
 
 `npm run dev`, `npm test`, and `npm run deploy` compile `rilot-core` to Wasm first (`scripts/build-wasm.mjs`).

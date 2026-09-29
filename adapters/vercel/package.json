@@ -1,0 +1,25 @@
+{
+  "name": "rilot-vercel",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Vercel Edge Function adapter for Rilot: request metadata, Vercel KV carbon cache, and forwarding. Routing decisions come from rilot-core.wasm.",
+  "scripts": {
+    "wasm": "node scripts/build-wasm.mjs",
+    "predev": "npm run wasm",
+    "dev": "vercel dev",
+    "pretest": "npm run wasm",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "predeploy": "npm run wasm",
+    "deploy": "vercel deploy --prod",
+    "preserve": "npm run wasm",
+    "serve": "node scripts/serve-local.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1",
+    "esbuild": "^0.25.0"
+  }
+}

@@ -838,7 +838,9 @@ async fn render_carbon(
     let described: Vec<_> = signals
         .iter()
         .map(|signal| {
-            let age = now.unix_seconds().saturating_sub(signal.observed_at.unix_seconds());
+            let age = now
+                .unix_seconds()
+                .saturating_sub(signal.observed_at.unix_seconds());
             let age = age.max(0) as u64;
             json!({
                 "region": signal.region,
@@ -872,7 +874,11 @@ fn json_response<T: Serialize>(status: StatusCode, body: &T) -> Result<Response<
         .header("Content-Type", "application/json; charset=utf-8")
         // Grid data, not user data: safe for a browser demo to read.
         .header("Access-Control-Allow-Origin", "*")
-        .body(serde_json::to_string_pretty(body).unwrap_or_default().into())
+        .body(
+            serde_json::to_string_pretty(body)
+                .unwrap_or_default()
+                .into(),
+        )
         .unwrap())
 }
 

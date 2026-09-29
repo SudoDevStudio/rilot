@@ -11,8 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 need_node
 need_wasm_target
-# npm 10.9.x trips over vitest's optional peers; --legacy-peer-deps avoids it.
-npm_setup "$ROOT/adapters/cloudflare" --legacy-peer-deps
+npm_setup "$ROOT/adapters/cloudflare"
 
 cd "$ROOT/adapters/cloudflare"
 

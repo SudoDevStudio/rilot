@@ -33,11 +33,12 @@ need_wasm_target() {
   fi
 }
 
+# 22 is the floor because wrangler requires it; everything else is happy on 20.
 need_node() {
-  have node || die "Node.js 20+ is not installed."
+  have node || die "Node.js 22+ is not installed."
   local major
   major="$(node -p 'process.versions.node.split(".")[0]')"
-  (( major >= 20 )) || die "Node.js 20+ required (found $(node -v))."
+  (( major >= 22 )) || die "Node.js 22+ required (found $(node -v))."
 }
 
 # npm install only when node_modules is missing; extra args are passed through.
@@ -51,9 +52,14 @@ npm_setup() {
 
 # Frees a TCP port's listener, if any (used before starting a server).
 free_port() {
-  local port="$1" pids
-  pids="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
-  [[ -n "$pids" ]] && { warn "Port $port was busy; stopping the old process."; kill $pids 2>/dev/null || true; sleep 1; }
+  local port="$1" pids=()
+  # One PID per line, so read them into an array rather than splitting a string.
+  while IFS= read -r pid; do [[ -n "$pid" ]] && pids+=("$pid"); done < <(lsof -ti tcp:"$port" 2>/dev/null || true)
+  if [[ ${#pids[@]} -gt 0 ]]; then
+    warn "Port $port was busy; stopping the old process."
+    kill "${pids[@]}" 2>/dev/null || true
+    sleep 1
+  fi
   return 0
 }
 

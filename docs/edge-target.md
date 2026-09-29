@@ -1,6 +1,6 @@
 # Edge Target
 
-Rilot runs at the edge through [`adapters/cloudflare`](../adapters/cloudflare): a Cloudflare Worker that executes `crates/rilot-core` compiled to WebAssembly, so edge routing decisions are identical to native ones.
+Rilot runs at the edge through two adapters — [`adapters/cloudflare`](../adapters/cloudflare) (a Worker) and [`adapters/vercel`](../adapters/vercel) (an Edge Function) — both executing `crates/rilot-core` compiled to WebAssembly, so edge routing decisions are identical to native ones and to each other.
 
 ```text
 request ─▶ plan() ─▶ carbon regions ─▶ CarbonService (memory → Workers KV → provider)
@@ -14,7 +14,9 @@ request ─▶ plan() ─▶ carbon regions ─▶ CarbonService (memory → Wor
 | --- | --- |
 | `crates/rilot-core` | routing rules, radius, constraints, scoring, fallback, hysteresis |
 | `packages/rilot-js` | the shared TypeScript binding for the Wasm module (also used by the playground) |
-| `adapters/cloudflare` | Worker runtime, request metadata, Workers KV cache, provider transport, forwarding |
+| `packages/rilot-http` | endpoints, request context, decision sequence, forwarding, research headers — shared by every JavaScript adapter |
+| `adapters/cloudflare` | Worker runtime, `cf` metadata, Workers KV cache, `ctx.waitUntil` |
+| `adapters/vercel` | Edge Function runtime, `x-vercel-ip-*` metadata, Vercel KV over REST |
 
 The core never performs I/O and never sees provider-specific zone ids.
 

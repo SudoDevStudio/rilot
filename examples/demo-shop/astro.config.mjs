@@ -4,8 +4,13 @@ import { defineConfig } from 'astro/config';
 import react from '@astrojs/react';
 import sitemap from '@astrojs/sitemap';
 
-// On GitHub Pages the demo ships under /<repo>/demo/; locally it is the root.
-const site = process.env.PUBLIC_SITE ?? 'https://sudodevstudio.github.io';
+// Where the demo will live. GitHub Pages serves it under /<repo>/demo/, Vercel
+// at the root of its own domain, and `npm run dev` at localhost — so both
+// values are taken from the environment, and Vercel's own variables are used
+// when nothing else says otherwise.
+const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL ?? process.env.VERCEL_URL;
+const site =
+  process.env.PUBLIC_SITE ?? (vercelHost ? `https://${vercelHost}` : 'https://sudodevstudio.github.io');
 const base = process.env.PUBLIC_BASE_PATH ?? '/';
 
 export default defineConfig({

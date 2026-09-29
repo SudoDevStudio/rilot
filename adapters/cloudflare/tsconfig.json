@@ -12,5 +12,5 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "test", "../../packages/rilot-js/src"]
+  "include": ["src", "test", "../../packages/rilot-js/src", "../../packages/rilot-carbon/src", "../../packages/rilot-http/src"]
 }

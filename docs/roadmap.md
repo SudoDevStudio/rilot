@@ -32,11 +32,23 @@ The evaluation script already understands the current reason codes (`reason_kind
 
 ## Continuous integration
 
-- `cargo clippy` and `cargo fmt --check` still do not run anywhere in CI. Five pre-existing clippy warnings in `src/wasm_engine.rs` (deref/`map_or` style) are the current backlog.
-- `run-it/*.sh` is not linted; there is no shellcheck step.
-- The browser apps (`examples/policy-playground`, `examples/demo-shop`) are tested and built on every push and pull request by the `browser-apps` job in `ci.yml`. Deployment stays in the Pages workflow.
+Every job below runs on each push and pull request:
+
+| Job | Covers |
+| --- | --- |
+| `build-and-test` | the Rust workspace and the shared decision fixtures in compiled Wasm |
+| `lint` | `cargo fmt --check`, `cargo clippy -D warnings`, the standalone `examples/wasm-plugin` build, and `shellcheck -x -S warning` |
+| `http-layer` | the HTTP layer both JavaScript adapters run on |
+| `cloudflare-adapter` | the Worker, in workerd |
+| `vercel-adapter` | the Vercel function, in Node |
+| `carbon-layer` | the shared carbon package against the Rust policy |
+| `browser-apps` | the playground and the demo shop: tests and build |
+
+Every job runs on Node 22, which is the floor wrangler sets, and each one
+installs with `npm ci` — no `--legacy-peer-deps` anywhere.
+
+Deployment stays in the Pages workflow.
 
 ## Small cleanups
 
-- `examples/wasm-plugin/` is a standalone crate (its own `[workspace]`), so `cargo test --workspace` and CI never build it. It does build with `cargo build --release --target wasm32-wasip1` from that folder.
 - The playground's Research-view candidate table scrolls sideways on desktop.

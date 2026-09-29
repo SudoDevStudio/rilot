@@ -29,4 +29,4 @@ Primary experiment entrypoint: `research-kit/scripts/run_comparative_experiment.
 - Platform engineers: `docs/operations.md`, `docs/config-reference.md`
 - Researchers: `docs/research-toolkit.md`, `docs/runtime-behavior.md`, `docs/model-calibration.md`
 - Plugin developers: `docs/wasm-carbon-plugin.md`
-- Adapter implementers: `docs/edge-target.md`, `docs/carbon-layer.md`, `adapters/cloudflare/README.md`
+- Adapter implementers: `docs/edge-target.md`, `docs/carbon-layer.md`, `adapters/cloudflare/README.md`, `adapters/vercel/README.md`

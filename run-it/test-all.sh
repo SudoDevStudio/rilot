@@ -32,8 +32,14 @@ run_suite "Shared decision fixtures in compiled Wasm" "$ROOT" node scripts/check
 npm_setup "$ROOT/packages/rilot-carbon"
 run_suite "Carbon layer conformance (TypeScript + Rust policy)" "$ROOT/packages/rilot-carbon" npm test
 
-npm_setup "$ROOT/adapters/cloudflare" --legacy-peer-deps
+npm_setup "$ROOT/packages/rilot-http"
+run_suite "Shared adapter HTTP layer" "$ROOT/packages/rilot-http" npm test
+
+npm_setup "$ROOT/adapters/cloudflare"
 run_suite "Cloudflare Worker (workerd)" "$ROOT/adapters/cloudflare" npm test
+
+npm_setup "$ROOT/adapters/vercel"
+run_suite "Vercel adapter" "$ROOT/adapters/vercel" npm test
 
 npm_setup "$ROOT/examples/policy-playground"
 run_suite "Policy Playground" "$ROOT/examples/policy-playground" npm test

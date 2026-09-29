@@ -136,7 +136,10 @@ mod tests {
             policy_for_path(cookie, "/products/bottle"),
             Some(Policy::Latency)
         );
-        assert_eq!(policy_for_path(cookie, "/products/tote"), Some(Policy::Carbon));
+        assert_eq!(
+            policy_for_path(cookie, "/products/tote"),
+            Some(Policy::Carbon)
+        );
         // A wildcard prefix also covers the bare path, like a routing rule.
         assert_eq!(policy_for_path(cookie, "/products"), Some(Policy::Carbon));
         assert_eq!(policy_for_path(cookie, "/cart"), Some(Policy::Balanced));

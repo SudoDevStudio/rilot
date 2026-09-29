@@ -24,6 +24,10 @@ Rilot is an open-source Rust proxy for per-request carbon-aware routing at the H
 
 `adapters/cloudflare` deploys Rilot to Cloudflare Workers, running the same `rilot-core` engine as WebAssembly. Cloudflare supplies the caller's location, Workers KV holds last-known-good carbon signals, and `/__rilot/decision` explains any routing decision without forwarding traffic. See [adapters/cloudflare/README.md](adapters/cloudflare/README.md).
 
+## Vercel
+
+`adapters/vercel` deploys the same engine as a Vercel Edge Function. It shares `packages/rilot-http` with the Worker, so both hosts run identical endpoint, decision and forwarding code; only the request metadata (`x-vercel-ip-*`), the config source and the KV transport differ. Its tests run in plain Node. See [adapters/vercel/README.md](adapters/vercel/README.md).
+
 ## Demo shop
 
 `examples/demo-shop` is the fastest way to *see* what Rilot does: a small Astro storefront on the left, and on the right the decision Rilot made for that exact request — matched rule, carbon signals (or why they were skipped), every candidate with its verdict, and the backend that served it. Every shop page is a real URL, and that URL is the path Rilot routes. Move the shopper to another city, drag the grid clock, or set a routing policy per page in the panel's **Policy** tab (it travels as a cookie, so a real deployment honours it), and the routing changes in front of you. It deploys to GitHub Pages alongside the playground. See [examples/demo-shop/README.md](examples/demo-shop/README.md).
@@ -142,9 +146,12 @@ crates/
 packages/
   rilot-js/               TypeScript binding for the Wasm engine
   rilot-carbon/           carbon providers + caches for JavaScript hosts
+  rilot-http/             endpoints, decision sequence and forwarding, shared by the adapters
 adapters/
-  cloudflare/             Cloudflare Worker (request metadata, Workers KV, forwarding)
+  cloudflare/             Cloudflare Worker (cf metadata, Workers KV)
+  vercel/                 Vercel Edge Function (x-vercel-ip-* metadata, Vercel KV)
 examples/
+  demo-shop/              split-screen Astro storefront, deployable to Pages or Vercel
   policy-playground/      browser visualization of the same engine
   node-apps/              local backend simulators
   config/                 example configs
@@ -169,6 +176,8 @@ Two rules explain the whole layout:
 - Carbon freshness rules: `crates/rilot-carbon-policy/src/lib.rs`
 - Native request path: `src/proxy.rs`
 - Cloudflare Worker: `adapters/cloudflare/src/index.ts`
+- Vercel function: `adapters/vercel/src/handler.ts`
+- Shared adapter HTTP layer: `packages/rilot-http/src/router.ts`
 - Demo shop: `examples/demo-shop/src/pages/` (one file per routed path)
 - Playground UI: `examples/policy-playground/src/App.tsx`
 - Config schema (native, both formats): `src/config.rs`
