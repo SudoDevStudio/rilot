@@ -43,7 +43,7 @@ The workflow executes in this order:
 Notes for interpreting those baselines:
 
 - The comparative runner forces `hysteresis_delta=0.0` and `min_switch_interval_secs=0` for reproducibility, so the research pipeline intentionally does not measure stickiness/flap prevention. Hysteresis behavior is covered by unit tests instead.
-- On flexible routes with `carbon_cursor_enabled=false`, selection falls back to lowest-latency routing. As a result, `baseline_no_carbon_latency_first` and `baseline_no_carbon_balanced` are expected to converge unless future runtime behavior changes.
+- On flexible routes with `carbon_cursor_enabled=false` (a `latency` policy in the current format), selection is purely lowest-latency and the decision reason is `lowest-latency`. As a result, `baseline_no_carbon_latency_first` and `baseline_no_carbon_balanced` are expected to converge.
 
 Measure:
 
@@ -108,7 +108,7 @@ Outputs:
   - `./scripts/run_comparative_experiment.sh`
   - defaults to total request target `50000` (`25000` per region)
   - uses local CSV-backed ElectricityMap-compatible API (`scripts/carbon-signal-api.js`)
-  - defaults to `carbon.cache_ttl_seconds>=5`
+  - defaults to `carbon.refresh_seconds>=5` (legacy alias: `cache_ttl_seconds`)
   - uses `research-kit/2026-03-29-electricity-maps-coverage-data.csv` to derive Electricity Maps zone aliases when available
   - uses CSV-only local ElectricityMap-compatible provider signals (no dynamic jitter path)
   - serves API responses in-memory by default (optional snapshot write via `CARBON_API_OUT_FILE`)

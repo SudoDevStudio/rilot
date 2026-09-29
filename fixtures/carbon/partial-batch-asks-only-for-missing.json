@@ -1,0 +1,64 @@
+{
+  "name": "partial-batch-asks-only-for-missing",
+  "description": "Only regions without a usable cached value reach the provider.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {
+    "memory": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 400,
+        "observed_at": "2026-09-20T11:59:40Z"
+      }
+    ]
+  },
+  "provider": {
+    "signals": [
+      {
+        "region": "us-west-2",
+        "carbon_g_per_kwh": 90,
+        "observed_at": "2026-09-20T12:00:00Z",
+        "source": "live"
+      },
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 999,
+        "observed_at": "2026-09-20T12:00:00Z",
+        "source": "live"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1",
+    "us-west-2"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 400,
+        "source": "local-cache"
+      },
+      {
+        "region": "us-west-2",
+        "carbon_g_per_kwh": 90,
+        "source": "live"
+      }
+    ],
+    "provider_called_with": [
+      "us-west-2"
+    ],
+    "refreshed": [],
+    "store_writes": {
+      "memory": [
+        "us-west-2"
+      ],
+      "kv": [
+        "us-west-2"
+      ]
+    }
+  }
+}

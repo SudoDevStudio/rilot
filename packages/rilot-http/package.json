@@ -1,0 +1,16 @@
+{
+  "name": "@rilot/http",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Host-agnostic HTTP layer for Rilot adapters: request context, the routing decision, the introspection endpoints and forwarding. Every routing decision still comes from rilot-core.wasm.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.1",
+    "@types/node": "^20.19.43"
+  }
+}

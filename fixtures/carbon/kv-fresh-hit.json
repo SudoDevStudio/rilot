@@ -1,0 +1,42 @@
+{
+  "name": "kv-fresh-hit",
+  "description": "A fresh KV entry is served and labelled last-known-good.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {
+    "kv": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 250,
+        "observed_at": "2026-09-20T11:59:15Z"
+      }
+    ]
+  },
+  "provider": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 111,
+        "observed_at": "2026-09-20T12:00:00Z"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 250,
+        "source": "last-known-good"
+      }
+    ],
+    "provider_called_with": [],
+    "refreshed": [],
+    "store_writes": {}
+  }
+}

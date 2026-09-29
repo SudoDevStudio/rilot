@@ -1,0 +1,67 @@
+{
+  "name": "hysteresis",
+  "description": "West now scores slightly better, but the gain is below the hysteresis delta, so east stays.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        }
+      ],
+      "policy": "balanced",
+      "fallback": "nearest"
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 210,
+          "observed_at": "2026-09-18T20:01:00Z"
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 200,
+          "observed_at": "2026-09-18T20:01:00Z"
+        }
+      ]
+    },
+    "runtime": {
+      "east": {
+        "latency_ms": 40
+      },
+      "west": {
+        "latency_ms": 42
+      }
+    },
+    "previous": {
+      "backend_id": "east",
+      "since": "2026-09-18T20:04:50Z"
+    }
+  },
+  "expect": {
+    "selected_backend_id": "east",
+    "reason_code": "hysteresis-sticky-zone",
+    "fallback_used": false,
+    "next_state": {
+      "backend_id": "east",
+      "since": "2026-09-18T20:04:50Z"
+    },
+    "rejections": {
+      "east": [],
+      "west": []
+    }
+  }
+}

@@ -1,0 +1,38 @@
+---
+import Shop from '../../layouts/Shop.astro';
+import { PAGE_REQUESTS } from '../../shop/requests';
+
+const figures = [
+  ['Orders', '1,284'],
+  ['Revenue', '$28,450'],
+  ['Returns', '2.1%'],
+  ['Avg. basket', '$22.15']
+] as const;
+---
+
+<Shop
+  title="Monthly store report"
+  description="The GreenCart store report: nobody is waiting on it, so the /reports/* rule drops the radius limit and lets the carbon policy pick the cleanest region on earth."
+  keywords={['carbon routing policy', 'batch workload routing', 'follow the sun computing']}
+  path={PAGE_REQUESTS.reports.path}
+  requestLabel={PAGE_REQUESTS.reports.label}
+  kilobytes={PAGE_REQUESTS.reports.kilobytes}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Store report', path: '/reports/monthly' }]}
+>
+  <h1 class="section-title">Monthly store report</h1>
+  <p class="muted lede">
+    Nobody is waiting on this page, so the <code>/reports/*</code> rule drops the radius limit and lets the carbon policy
+    pick the cleanest region available. Drag the grid clock on the right and watch it move between continents.
+  </p>
+
+  <div class="report-grid">
+    {
+      figures.map(([label, value]) => (
+        <div class="report-card">
+          <span>{label}</span>
+          <strong>{value}</strong>
+        </div>
+      ))
+    }
+  </div>
+</Shop>

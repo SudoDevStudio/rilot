@@ -1,0 +1,40 @@
+name = "rilot-edge"
+main = "src/index.ts"
+compatibility_date = "2026-08-22"
+# Required by @cloudflare/vitest-pool-workers; harmless in production.
+compatibility_flags = ["nodejs_compat"]
+
+# rilot-core compiled to WebAssembly (built by scripts/build-wasm.mjs).
+rules = [{ type = "CompiledWasm", globs = ["**/*.wasm"], fallback_through = true }]
+
+[vars]
+# Routing config as JSON. Replace with your backends, or store it in KV under "rilot:config".
+RILOT_CONFIG = '''
+{
+  "carbon": { "provider": "electricitymap", "max_age_seconds": 300 },
+  "backends": [
+    { "id": "east", "region": "us-east-1", "url": "https://httpbingo.org/anything" },
+    { "id": "west", "region": "us-west-2", "url": "https://httpbingo.org/anything" },
+    { "id": "dublin", "region": "eu-west-1", "url": "https://httpbingo.org/anything" }
+  ],
+  "policy": "balanced",
+  "radius_km": 6000,
+  "fallback": "nearest",
+  "routing_rules": [
+    { "path": "/checkout/*", "policy": "latency", "radius_km": 1500 },
+    { "path": "/reports/*", "policy": "carbon", "radius_km": null }
+  ]
+}
+'''
+RILOT_EXPOSE_RESEARCH_HEADERS = "true"
+
+# Workers KV holds the last-known-good carbon signal per region.
+# Create it once:  npx wrangler kv namespace create CARBON
+# then paste the returned id below (and a preview_id for `wrangler dev`).
+# [[kv_namespaces]]
+# binding = "CARBON_KV"
+# id = "<your-kv-namespace-id>"
+# preview_id = "<your-preview-kv-namespace-id>"
+
+# Electricity Maps key (never put it in [vars]):
+#   npx wrangler secret put ELECTRICITYMAP_API_KEY

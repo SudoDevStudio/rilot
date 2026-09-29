@@ -1,0 +1,54 @@
+{
+  "name": "unhealthy-fastest-backend",
+  "description": "An unhealthy backend must not become the latency reference for max_latency_delta_ms.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        }
+      ],
+      "policy": "latency",
+      "fallback": "nearest",
+      "advanced": {
+        "max_latency_delta_ms": 10
+      }
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": []
+    },
+    "runtime": {
+      "east": {
+        "latency_ms": 5,
+        "healthy": false
+      },
+      "west": {
+        "latency_ms": 40
+      }
+    }
+  },
+  "expect": {
+    "selected_backend_id": "west",
+    "reason_code": "lowest-latency",
+    "fallback_used": false,
+    "rejections": {
+      "east": [
+        "health-constraint"
+      ],
+      "west": []
+    }
+  }
+}

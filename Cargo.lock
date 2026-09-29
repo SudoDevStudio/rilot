@@ -1800,6 +1800,7 @@ dependencies = [
  "log",
  "once_cell",
  "reqwest",
+ "rilot-carbon",
  "rilot-core",
  "serde",
  "serde_json",
@@ -1811,10 +1812,42 @@ dependencies = [
 ]
 
 [[package]]
-name = "rilot-core"
+name = "rilot-carbon"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "log",
+ "reqwest",
+ "rilot-carbon-policy",
+ "rilot-core",
  "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "rilot-carbon-policy"
+version = "0.1.0"
+dependencies = [
+ "rilot-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rilot-core"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "rilot-wasm"
+version = "0.2.0"
+dependencies = [
+ "rilot-carbon-policy",
+ "rilot-core",
 ]
 
 [[package]]

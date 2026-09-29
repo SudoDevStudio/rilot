@@ -1,0 +1,60 @@
+{
+  "name": "forecast-deferral",
+  "description": "Background work with a much cleaner forecast is marked for deferral.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        }
+      ],
+      "policy": "carbon",
+      "fallback": "nearest",
+      "advanced": {
+        "route_class": "background",
+        "forecasting": true,
+        "time_shift": true,
+        "max_defer_seconds": 2
+      }
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 400,
+          "observed_at": "2026-09-18T20:01:00Z",
+          "forecast_g_per_kwh": 300
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 350,
+          "observed_at": "2026-09-18T20:01:00Z",
+          "forecast_g_per_kwh": 340
+        }
+      ]
+    }
+  },
+  "expect": {
+    "selected_backend_id": "east",
+    "reason_code": "deferred-for-greener-window",
+    "fallback_used": false,
+    "defer_seconds": 2,
+    "rejections": {
+      "east": [],
+      "west": []
+    }
+  }
+}

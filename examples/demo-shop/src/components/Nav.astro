@@ -1,0 +1,37 @@
+---
+import { href } from '../lib/links';
+import CartBadge from './islands/CartBadge.tsx';
+
+type Props = { path: string };
+const { path } = Astro.props;
+
+const items = [
+  { path: '/', label: 'Home' },
+  { path: '/products', label: 'Products' },
+  { path: '/cart', label: 'Cart' },
+  { path: '/green/impact', label: 'Our impact' },
+  { path: '/reports/monthly', label: 'Store report' }
+];
+
+const isActive = (item: string) => (item === '/' ? path === '/' : path.startsWith(item));
+---
+
+<header class="shop-nav">
+  <a class="brand" href={href('/')}>
+    <span aria-hidden="true">🌿</span> GreenCart
+  </a>
+  <nav aria-label="Shop">
+    {
+      items.map((item) => (
+        <a
+          class:list={['nav-link', { 'is-active': isActive(item.path) }]}
+          href={href(item.path)}
+          aria-current={isActive(item.path) ? 'page' : undefined}
+        >
+          {item.label}
+          {item.path === '/cart' && <CartBadge client:idle />}
+        </a>
+      ))
+    }
+  </nav>
+</header>

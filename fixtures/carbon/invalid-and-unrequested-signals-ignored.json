@@ -1,0 +1,36 @@
+{
+  "name": "invalid-and-unrequested-signals-ignored",
+  "description": "Negative values and regions nobody asked for are dropped.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {},
+  "provider": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": -5,
+        "observed_at": "2026-09-20T12:00:00Z"
+      },
+      {
+        "region": "ap-south-1",
+        "carbon_g_per_kwh": 100,
+        "observed_at": "2026-09-20T12:00:00Z",
+        "source": "live"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [],
+    "provider_called_with": [
+      "us-east-1"
+    ],
+    "refreshed": [],
+    "store_writes": {}
+  }
+}

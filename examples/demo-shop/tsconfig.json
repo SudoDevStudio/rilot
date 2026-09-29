@@ -1,0 +1,12 @@
+{
+  "extends": "astro/tsconfigs/strict",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "react",
+    "types": ["node", "astro/client"],
+    "baseUrl": ".",
+    "paths": { "@rilot/core-js": ["../../packages/rilot-js/src/index.ts"] }
+  },
+  "include": [".astro/types.d.ts", "src", "../../packages/rilot-js/src"],
+  "exclude": ["dist"]
+}

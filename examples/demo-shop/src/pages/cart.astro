@@ -1,0 +1,18 @@
+---
+import Shop from '../layouts/Shop.astro';
+import CartLines from '../components/islands/CartLines.tsx';
+import { PAGE_REQUESTS } from '../shop/requests';
+---
+
+<Shop
+  title="Your cart"
+  description="The GreenCart cart page. Viewing the cart is one routing decision; adding an item is another (POST /cart/items), and both appear in the panel beside it."
+  keywords={['demo cart', 'routing decision per request']}
+  path={PAGE_REQUESTS.cart.path}
+  requestLabel={PAGE_REQUESTS.cart.label}
+  kilobytes={PAGE_REQUESTS.cart.kilobytes}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Cart', path: '/cart' }]}
+>
+  <h1 class="section-title">Your cart</h1>
+  <CartLines client:only="react" />
+</Shop>

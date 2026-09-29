@@ -1,0 +1,51 @@
+---
+import Shop from '../../layouts/Shop.astro';
+import AddToCart from '../../components/islands/AddToCart.tsx';
+import { href } from '../../lib/links';
+import { CATEGORIES, PRODUCTS } from '../../shop/catalog';
+import { PAGE_REQUESTS } from '../../shop/requests';
+---
+
+<Shop
+  title="All products"
+  description="The full GreenCart catalog: six sample products. Browsing is a balanced routing decision — a cleaner region wins unless it is too far away."
+  keywords={['demo catalog', 'sample products', 'balanced routing policy']}
+  path={PAGE_REQUESTS.products.path}
+  requestLabel={PAGE_REQUESTS.products.label}
+  kilobytes={PAGE_REQUESTS.products.kilobytes}
+  breadcrumbs={[{ name: 'Home', path: '/' }, { name: 'Products', path: '/products' }]}
+  jsonLd={[
+    {
+      '@type': 'ItemList',
+      name: 'GreenCart sample catalog',
+      numberOfItems: PRODUCTS.length,
+      itemListElement: PRODUCTS.map((product, index) => ({
+        '@type': 'ListItem',
+        position: index + 1,
+        name: product.name
+      }))
+    }
+  ]}
+>
+  <h1 class="section-title">All products</h1>
+  <p class="muted lede">
+    {CATEGORIES.join(' · ')} — six sample products, so there is something to click. Every card opens its own URL, which is
+    its own routing decision.
+  </p>
+
+  <div class="product-grid">
+    {
+      PRODUCTS.map((product) => (
+        <div class="product-card">
+          <a class="product-open" href={href(`/products/${product.id}`)}>
+            <span class="product-art" aria-hidden="true">{product.emoji}</span>
+            <strong>{product.name}</strong>
+            <span class="muted">{product.blurb}</span>
+            <span class="price">${product.price}</span>
+          </a>
+          <AddToCart client:visible id={product.id} name={product.name} />
+        </div>
+      ))
+    }
+  </div>
+</Shop>

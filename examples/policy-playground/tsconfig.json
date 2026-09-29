@@ -14,8 +14,12 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@rilot/core-js": ["../../packages/rilot-js/src/index.ts"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "../../packages/rilot-js/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -1,0 +1,51 @@
+{
+  "name": "stale-while-revalidate",
+  "description": "Past the refresh age but within max age: serve the cached value and refresh in the background.",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 60
+  },
+  "stores": {
+    "memory": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 400,
+        "observed_at": "2026-09-20T11:58:00Z"
+      }
+    ]
+  },
+  "provider": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 300,
+        "observed_at": "2026-09-20T12:00:00Z"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 400,
+        "source": "local-cache"
+      }
+    ],
+    "provider_called_with": [],
+    "refreshed": [
+      "us-east-1"
+    ],
+    "store_writes": {
+      "memory": [
+        "us-east-1"
+      ],
+      "kv": [
+        "us-east-1"
+      ]
+    }
+  }
+}

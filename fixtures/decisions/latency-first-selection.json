@@ -1,0 +1,47 @@
+{
+  "name": "latency-first-selection",
+  "description": "Latency policy needs no carbon data and picks the fastest backend.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        },
+        {
+          "id": "eu",
+          "region": "eu-west-1",
+          "url": "https://eu.example.com"
+        }
+      ],
+      "policy": "latency",
+      "fallback": "nearest"
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": []
+    }
+  },
+  "expect": {
+    "selected_backend_id": "east",
+    "reason_code": "lowest-latency",
+    "fallback_used": false,
+    "needs_carbon": false,
+    "rejections": {
+      "east": [],
+      "west": [],
+      "eu": []
+    }
+  }
+}

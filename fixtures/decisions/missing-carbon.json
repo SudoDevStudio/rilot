@@ -1,0 +1,61 @@
+{
+  "name": "missing-carbon",
+  "description": "Balanced policy rejects backends without a fresh signal: east is stale, eu has none.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        },
+        {
+          "id": "eu",
+          "region": "eu-west-1",
+          "url": "https://eu.example.com"
+        }
+      ],
+      "policy": "balanced",
+      "fallback": "nearest"
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 100,
+          "observed_at": "2026-09-18T19:00:00Z"
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 300,
+          "observed_at": "2026-09-18T20:01:00Z"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "selected_backend_id": "west",
+    "reason_code": "score-win",
+    "fallback_used": false,
+    "rejections": {
+      "east": [
+        "carbon-unavailable"
+      ],
+      "west": [],
+      "eu": [
+        "carbon-unavailable"
+      ]
+    }
+  }
+}

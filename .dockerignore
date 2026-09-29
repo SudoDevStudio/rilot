@@ -1,0 +1,8 @@
+# Only what the native build needs; keeps target/ and node_modules out of the context.
+*
+!Cargo.toml
+!Cargo.lock
+!src/
+!crates/
+!docker/
+crates/**/target/

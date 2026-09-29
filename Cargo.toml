@@ -7,6 +7,9 @@ description = "Carbon Cursor edge routing proxy with multi-objective policies, W
 license = "MIT"
 repository = "https://github.com/SudoDevStudio/rilot"
 
+[workspace]
+members = [".", "crates/rilot-core", "crates/rilot-carbon", "crates/rilot-carbon-policy", "crates/rilot-wasm"]
+exclude = ["examples/wasm-plugin"]
 
 [dependencies]
 hyper = { version = "0.14", features = ["full"] }
@@ -23,3 +26,14 @@ env_logger = "0.11"
 log="0.4"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 rilot-core = { path = "crates/rilot-core" }
+rilot-carbon = { path = "crates/rilot-carbon" }
+
+# Size-optimized build of rilot-core for the browser:
+#   cargo build -p rilot-wasm --profile wasm --target wasm32-unknown-unknown
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

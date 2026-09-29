@@ -1,0 +1,44 @@
+{
+  "name": "carbon-unavailable-fallback",
+  "description": "No backend has carbon data, so fallback routes to the lowest-latency backend.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        },
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        }
+      ],
+      "policy": "carbon",
+      "fallback": "lowest-latency"
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": []
+    }
+  },
+  "expect": {
+    "selected_backend_id": "east",
+    "reason_code": "fallback-lowest-latency",
+    "fallback_used": true,
+    "rejections": {
+      "west": [
+        "carbon-unavailable"
+      ],
+      "east": [
+        "carbon-unavailable"
+      ]
+    }
+  }
+}

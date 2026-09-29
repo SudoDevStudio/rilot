@@ -13,6 +13,8 @@ services:
       RILOT_EMULATE_CROSS_REGION_RTT: "${RILOT_EMULATE_CROSS_REGION_RTT:-false}"
     volumes:
       - ./${CONFIG_FILE_NAME:-config.docker.json}:/app/config.json:ro
+      # config.docker.json reads ./carbon-traces/... relative to /app
+      - ./carbon-traces:/app/carbon-traces:ro
     ports:
       - "${RILOT_HOST_PORT:-8080}:8080"
     depends_on:

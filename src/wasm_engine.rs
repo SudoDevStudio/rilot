@@ -59,7 +59,7 @@ impl WasiHttpView for Host {
 
 static ENGINE: Lazy<Engine> = Lazy::new(|| {
     Engine::new(
-        &WasmtimeConfig::new()
+        WasmtimeConfig::new()
             .async_support(true)
             .wasm_component_model(true),
     )
@@ -107,13 +107,13 @@ fn load_component(component_path: &str, use_cache: bool) -> Result<Component> {
         }
         drop(read_cache);
 
-        let comp = Component::from_file(&*ENGINE, component_path)
+        let comp = Component::from_file(&ENGINE, component_path)
             .with_context(|| format!("Failed to load Wasm component file: {}", component_path))?;
         let mut write_cache = cache_write_guard();
         write_cache.insert(component_path.to_string(), comp.clone());
         Ok(comp)
     } else {
-        Component::from_file(&*ENGINE, component_path)
+        Component::from_file(&ENGINE, component_path)
             .with_context(|| format!("Failed to load Wasm component file: {}", component_path))
     }
 }
@@ -167,10 +167,10 @@ pub async fn run_modify_request(component_path: &str, input_json: &str) -> Resul
         wasi: wasi_ctx,
         http: WasiHttpCtx::new(),
     };
-    let mut store = Store::new(&*ENGINE, host);
+    let mut store = Store::new(&ENGINE, host);
     log::debug!("Host and Store created.");
 
-    let mut linker = Linker::new(&*ENGINE);
+    let mut linker = Linker::new(&ENGINE);
 
     wasi_add(&mut linker)?;
     add_only_http_to_linker_async(&mut linker)?;

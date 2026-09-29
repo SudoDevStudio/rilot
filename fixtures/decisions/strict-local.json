@@ -1,0 +1,56 @@
+{
+  "name": "strict-local",
+  "description": "A strict-local route stays in the user's region even when another region is cleaner.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        }
+      ],
+      "policy": "carbon",
+      "fallback": "nearest",
+      "advanced": {
+        "route_class": "strict-local"
+      }
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-west-2"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 50,
+          "observed_at": "2026-09-18T20:01:00Z"
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 500,
+          "observed_at": "2026-09-18T20:01:00Z"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "selected_backend_id": "west",
+    "reason_code": "score-win",
+    "fallback_used": false,
+    "rejections": {
+      "east": [
+        "region-constraint"
+      ],
+      "west": []
+    }
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "name": "refresh-zero-always-fetches",
+  "description": "refresh_seconds = 0 bypasses the cache on every call (live reload).",
+  "now": "2026-09-20T12:00:00Z",
+  "policy": {
+    "max_age_seconds": 300,
+    "refresh_seconds": 0
+  },
+  "stores": {
+    "memory": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 400,
+        "observed_at": "2026-09-20T11:59:55Z"
+      }
+    ]
+  },
+  "provider": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 50,
+        "observed_at": "2026-09-20T12:00:00Z",
+        "source": "live"
+      }
+    ]
+  },
+  "request": [
+    "us-east-1"
+  ],
+  "expect": {
+    "signals": [
+      {
+        "region": "us-east-1",
+        "carbon_g_per_kwh": 50,
+        "source": "live"
+      }
+    ],
+    "provider_called_with": [
+      "us-east-1"
+    ],
+    "refreshed": [],
+    "store_writes": {
+      "memory": [
+        "us-east-1"
+      ],
+      "kv": [
+        "us-east-1"
+      ]
+    }
+  }
+}

@@ -1,0 +1,65 @@
+{
+  "name": "balanced-selection",
+  "description": "Balanced policy trades a little latency for a much cleaner backend; eu is outside the radius.",
+  "input": {
+    "config": {
+      "backends": [
+        {
+          "id": "east",
+          "region": "us-east-1",
+          "url": "https://east.example.com"
+        },
+        {
+          "id": "west",
+          "region": "us-west-2",
+          "url": "https://west.example.com"
+        },
+        {
+          "id": "eu",
+          "region": "eu-west-1",
+          "url": "https://eu.example.com"
+        }
+      ],
+      "policy": "balanced",
+      "radius_km": 4000,
+      "fallback": "nearest"
+    },
+    "request": {
+      "path": "/",
+      "user_region": "us-east-1"
+    },
+    "now": "2026-09-18T20:05:00Z",
+    "carbon": {
+      "max_age_seconds": 300,
+      "signals": [
+        {
+          "region": "us-east-1",
+          "carbon_g_per_kwh": 400,
+          "observed_at": "2026-09-18T20:01:00Z"
+        },
+        {
+          "region": "us-west-2",
+          "carbon_g_per_kwh": 100,
+          "observed_at": "2026-09-18T20:01:00Z"
+        },
+        {
+          "region": "eu-west-1",
+          "carbon_g_per_kwh": 50,
+          "observed_at": "2026-09-18T20:01:00Z"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "selected_backend_id": "west",
+    "reason_code": "score-win",
+    "fallback_used": false,
+    "rejections": {
+      "east": [],
+      "west": [],
+      "eu": [
+        "outside-radius"
+      ]
+    }
+  }
+}
